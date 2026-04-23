@@ -34,12 +34,15 @@ app.use((req, res, next) => {
 });
 
 
+// app.use(cors({
+//   origin: [
+//     "http://localhost:5173",
+//     "http://192.168.1.137:5174"
+//   ],
+//   credentials: true,
+// }));
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://192.168.1.137:5174"
-  ],
-  credentials: true,
+  origin: "*"
 }));
 
 app.use("/api/contractor-type", contractorRoutes);
