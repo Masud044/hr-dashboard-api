@@ -15,6 +15,8 @@ import contractorInfoRoutes from "./modules/contractor-info/route.js";
 import constructionProcessRoutes from "./modules/construction-process/route.js";
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
+import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
+
 const app = express();
 
 app.use(express.json());
@@ -58,6 +60,8 @@ app.use("/api/schedule-header", scheduleHeaderRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/contractor", contractorInfoRoutes);
 app.use("/api/construction-process", constructionProcessRoutes);
+
+app.use("/api/v2/auth", authV2Route);
 
 app.use(errorMiddleware);
 
