@@ -14,6 +14,8 @@ import customerRoutes from "./modules/customer/route.js";
 import contractorInfoRoutes from "./modules/contractor-info/route.js";
 import constructionProcessRoutes from "./modules/construction-process/route.js";
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
+import userManagementRoutes from "./modules/user-management/user-management.routes.js";
+import empImageRoutes from "./modules/employee-image/employee-image.routes.js";
 
 import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
 
@@ -60,6 +62,9 @@ app.use("/api/schedule-header", scheduleHeaderRoutes);
 app.use("/api/customer", customerRoutes);
 app.use("/api/contractor", contractorInfoRoutes);
 app.use("/api/construction-process", constructionProcessRoutes);
+
+app.use("/api/emp-images", empImageRoutes);
+app.use("/api/users", userManagementRoutes);
 
 app.use("/api/v2/auth", authV2Route);
 

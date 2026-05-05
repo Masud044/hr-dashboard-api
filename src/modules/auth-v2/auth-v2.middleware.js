@@ -3,6 +3,7 @@ import { getConnection } from "../../config/db.js";
 import oracledb from "oracledb";
 
 export const protectRouteV2 = async (req, res, next) => {
+  let connection;
   try {
     // 1. Bearer token extract
     const authHeader = req.headers.authorization;
@@ -24,16 +25,17 @@ export const protectRouteV2 = async (req, res, next) => {
       return res.status(401).json({ error: "Invalid token." });
     }
 
-    // 3. DB check — withConnection ব্যবহার করো
-    const user = await getConnection(async (conn) => {       // ← fix
-      const result = await conn.execute(
-        `SELECT ID, USERNAME, STATUS, EMPLOYEE_ID
-           FROM HCM.USERS WHERE ID = :id`,
-        { id: decoded.id },
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
-      );
-      return result.rows[0] ?? null;
-    });
+    // 3. DB check — getConnection() সরাসরি use করো (callback style নয়)
+    connection = await getConnection();
+
+    const result = await connection.execute(
+      `SELECT ID, USERNAME, STATUS, EMPLOYEE_ID
+         FROM HCM.USERS WHERE ID = :id`,
+      { id: decoded.id },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const user = result.rows[0] ?? null;
 
     if (!user) {
       return res.status(401).json({ error: "User no longer exists." });
@@ -54,5 +56,8 @@ export const protectRouteV2 = async (req, res, next) => {
   } catch (error) {
     console.error("❌ protectRouteV2 error:", error);
     return res.status(500).json({ error: "Authentication failed." });
+  } finally {
+    // ✅ সবসময় connection close করো
+    if (connection) await connection.close().catch(console.error);
   }
 };

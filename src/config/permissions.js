@@ -1,0 +1,26 @@
+// export const PERMISSIONS = {
+//   // =========================
+//   // MAIN ENTRY (Accounting)
+//   // =========================
+//   MAIN_ENTRY: "MAIN_ENTRY",
+
+//   MAIN_ENTRY_PAYMENT: "MAIN_ENTRY_PAYMENT",
+//   MAIN_ENTRY_JOURNAL: "MAIN_ENTRY_JOURNAL",
+//   MAIN_ENTRY_RECEIVE: "MAIN_ENTRY_RECEIVE",
+//   MAIN_ENTRY_CASH_TRANSFER: "MAIN_ENTRY_CASH_TRANSFER",
+
+//   MAIN_ENTRY_CHART_ACCOUNT: "MAIN_ENTRY_CHART_ACCOUNT",
+
+//   MAIN_REPORT: "MAIN_REPORT",
+
+//   // =========================
+//   // INVENTORY MODULE
+//   // =========================
+//   INVENTORY: "INVENTORY",
+
+//   INVENTORY_ITEM: "INVENTORY_ITEM",
+//   INVENTORY_STOCK: "INVENTORY_STOCK",
+//   INVENTORY_REQUISITION: "INVENTORY_REQUISITION",
+
+//   INVENTORY_REPORT: "INVENTORY_REPORT",
+// };
