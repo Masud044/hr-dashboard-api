@@ -20,7 +20,7 @@ router.get("/me", protectRouteV2, (req, res) => {
         username:    req.user.username,
         employee_id: req.user.employee_id,
         roles:       req.user.roles,
-        // permissions: req.user.permissions,
+         permissions: req.user.permissions,
       },
     },
   });
