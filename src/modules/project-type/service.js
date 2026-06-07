@@ -5,7 +5,7 @@ export async function listProjectTypes() {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "SELECT ID, NAME FROM PM_PROJECT_TYPE ORDER BY ID",
+      "SELECT ID, NAME, DESCRIPTION FROM PM_PROJECT_TYPE ORDER BY ID",
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
@@ -26,8 +26,12 @@ export async function createProjectType(payload) {
     const newId = seqResult.rows?.[0]?.NEW_ID;
 
     const insertResult = await connection.execute(
-      "INSERT INTO PM_PROJECT_TYPE (ID, NAME) VALUES (:id, :name)",
-      { id: newId, name: payload.NAME },
+      "INSERT INTO PM_PROJECT_TYPE (ID, NAME, DESCRIPTION) VALUES (:id, :name, :description)",
+      {
+        id: newId,
+        name: payload.NAME,
+        description: payload.DESCRIPTION ?? null
+      },
       { autoCommit: true }
     );
 
@@ -41,8 +45,12 @@ export async function updateProjectType(payload) {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "UPDATE PM_PROJECT_TYPE SET NAME = :name WHERE ID = :id",
-      { name: payload.NAME, id: payload.ID },
+      "UPDATE PM_PROJECT_TYPE SET NAME = :name, DESCRIPTION = :description WHERE ID = :id",
+      {
+        name: payload.NAME,
+        description: payload.DESCRIPTION ?? null,
+        id: payload.ID
+      },
       { autoCommit: true }
     );
     return { success: result.rowsAffected > 0 };

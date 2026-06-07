@@ -16,6 +16,9 @@ import constructionProcessRoutes from "./modules/construction-process/route.js";
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 import userManagementRoutes from "./modules/user-management/user-management.routes.js";
 import empImageRoutes from "./modules/employee-image/employee-image.routes.js";
+import contractorTypeInfoRoutes from "./modules/contractor-type-info/route.js";
+ import ownerInfoRoutes from "./modules/owner-info/route.js";
+
 
 import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
 
@@ -67,6 +70,18 @@ app.use("/api/emp-images", empImageRoutes);
 app.use("/api/users", userManagementRoutes);
 
 app.use("/api/v2/auth", authV2Route);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD THESE TWO IMPORTS to your existing app.js imports section:
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD THESE TWO LINES to your existing app.use() registrations section:
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.use("/api/contractor-type-info", contractorTypeInfoRoutes);
+app.use("/api/owner-info", ownerInfoRoutes);
 
 app.use(errorMiddleware);
 
