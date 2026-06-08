@@ -1,30 +1,159 @@
-import { insertContractor, searchContractor, updateContractor, deleteContractor } from "./service.js";
+import {
+  createContractorWithTypes,
+  getContractors,
+  getContractorDetail,
+  updateContractorWithTypes,
+  deleteContractorWithTypes,
+} from "./service.js";
 
-export async function handleContractorInfo(req, res) {
-  if (req.method === "POST") {
-    if (!req.body?.CONTRATOR_NAME || !req.body?.ENTRY_BY) {
-      return res.status(400).json({ success: false, message: "CONTRATOR_NAME and ENTRY_BY are required." });
+// ─────────────────────────────────────────────
+//  POST /api/contractors
+//  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
+// ─────────────────────────────────────────────
+export async function createContractor(req, res) {
+  try {
+    const { contractor, contractorTypes } = req.body;
+
+    // Basic validation
+    if (!contractor?.CONTRATOR_NAME) {
+      return res.status(400).json({
+        success: false,
+        message: "CONTRATOR_NAME is required.",
+      });
     }
-    const CONTRATOR_ID = await insertContractor({ ...req.body, UPDATE_BY: req.body.UPDATE_BY ?? req.body.ENTRY_BY, STATUS: req.body.STATUS ?? 1 });
-    return res.status(201).json({ success: true, message: "Contractor created.", CONTRATOR_ID });
+
+    if (!Array.isArray(contractorTypes) || contractorTypes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one contractorType is required.",
+      });
+    }
+
+    const result = await createContractorWithTypes({ contractor, contractorTypes });
+
+    return res.status(201).json({
+      success: true,
+      message: "Contractor created successfully.",
+      data: result,
+    });
+  } catch (err) {
+    console.error("[createContractor] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create contractor.",
+      error: err.message,
+    });
   }
-  if (req.method === "GET") {
-    const c_id = Number(req.query.contrator_id || 0);
-    const data = await searchContractor(c_id);
-    if (c_id > 0 && !data.length) return res.status(404).json({ success: false, message: `Contractor ID ${c_id} not found.` });
-    return res.json({ success: true, count: data.length, data });
+}
+
+// ─────────────────────────────────────────────
+//  GET /api/contractors
+//  GET /api/contractors/:id
+// ─────────────────────────────────────────────
+export async function getAllContractors(req, res) {
+  try {
+    const rows = await getContractors(0);
+    return res.status(200).json({ success: true, data: rows });
+  } catch (err) {
+    console.error("[getAllContractors] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch contractors.",
+      error: err.message,
+    });
   }
-  if (req.method === "PUT") {
-    if (!req.body?.CONTRATOR_ID) return res.status(400).json({ success: false, message: "CONTRATOR_ID and UPDATE_BY are required for update." });
-    const rows = await updateContractor(req.body);
-    if (!rows) return res.status(404).json({ success: false, message: `Contractor ID ${req.body.CONTRATOR_ID} not found or no changes made.` });
-    return res.json({ success: true, message: `Contractor ID ${req.body.CONTRATOR_ID} updated successfully.` });
+}
+
+export async function getContractorById(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid contractor ID." });
+    }
+
+    const data = await getContractorDetail(id);
+    if (!data) {
+      return res.status(404).json({ success: false, message: "Contractor not found." });
+    }
+
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error("[getContractorById] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch contractor.",
+      error: err.message,
+    });
   }
-  if (req.method === "DELETE") {
-    if (!req.body?.CONTRATOR_ID) return res.status(400).json({ success: false, message: "CONTRATOR_ID is required for deletion." });
-    const rows = await deleteContractor(req.body.CONTRATOR_ID);
-    if (!rows) return res.status(404).json({ success: false, message: `Contractor ID ${req.body.CONTRATOR_ID} not found.` });
-    return res.json({ success: true, message: `Contractor ID ${req.body.CONTRATOR_ID} deleted successfully.` });
+}
+
+// ─────────────────────────────────────────────
+//  PUT /api/contractors/:id
+//  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
+// ─────────────────────────────────────────────
+export async function updateContractor(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid contractor ID." });
+    }
+
+    const { contractor, contractorTypes } = req.body;
+
+    if (!contractor) {
+      return res.status(400).json({ success: false, message: "Contractor data is required." });
+    }
+
+    if (!Array.isArray(contractorTypes) || contractorTypes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one contractorType is required.",
+      });
+    }
+
+    const result = await updateContractorWithTypes(id, { contractor, contractorTypes });
+
+    return res.status(200).json({
+      success: true,
+      message: "Contractor updated successfully.",
+      data: result,
+    });
+  } catch (err) {
+    console.error("[updateContractor] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update contractor.",
+      error: err.message,
+    });
   }
-  return res.status(405).json({ success: false, message: "Method not supported." });
+}
+
+// ─────────────────────────────────────────────
+//  DELETE /api/contractors/:id
+// ─────────────────────────────────────────────
+export async function deleteContractor(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid contractor ID." });
+    }
+
+    const rowsAffected = await deleteContractorWithTypes(id);
+
+    if (!rowsAffected) {
+      return res.status(404).json({ success: false, message: "Contractor not found." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Contractor deleted successfully.",
+    });
+  } catch (err) {
+    console.error("[deleteContractor] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete contractor.",
+      error: err.message,
+    });
+  }
 }
