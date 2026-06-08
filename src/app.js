@@ -18,6 +18,8 @@ import userManagementRoutes from "./modules/user-management/user-management.rout
 import empImageRoutes from "./modules/employee-image/employee-image.routes.js";
 import contractorTypeInfoRoutes from "./modules/contractor-type-info/route.js";
  import ownerInfoRoutes from "./modules/owner-info/route.js";
+ // Barrel export — import from here in app.js / server.js
+
 
 
 import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
