@@ -1,11 +1,14 @@
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 
+const TABLE = "PM_CONTRACTOR_TYPE";
+
+// ─── LIST ──────────────────────────────────────────────────────────────────────
 export async function listContractorTypes() {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "SELECT ID, NAME FROM PM_CONTRACTOR_TYPE ORDER BY ID",
+      `SELECT ID, NAME FROM ${TABLE} ORDER BY ID`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
@@ -15,34 +18,38 @@ export async function listContractorTypes() {
   }
 }
 
+// ─── CREATE — trigger generates ID, use RETURNING to get it back ───────────────
 export async function createContractorType(payload) {
   const connection = await getConnection();
   try {
-    const seqResult = await connection.execute(
-      "SELECT NVL(MAX(ID),0)+1 AS NEW_ID FROM PM_CONTRACTOR_TYPE",
-      {},
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    const newId = seqResult.rows?.[0]?.NEW_ID;
-
-    const insertResult = await connection.execute(
-      "INSERT INTO PM_CONTRACTOR_TYPE (ID, NAME) VALUES (:id, :name)",
-      { id: newId, name: payload.NAME },
+    const result = await connection.execute(
+      `INSERT INTO ${TABLE} (NAME)
+       VALUES (:name)
+       RETURNING ID INTO :newId`,
+      {
+        name:  payload.NAME,
+        newId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+      },
       { autoCommit: true }
     );
 
-    return { success: insertResult.rowsAffected > 0, id: newId };
+    const newId = result.outBinds.newId[0];
+    return { success: true, id: newId };
   } finally {
     await connection.close();
   }
 }
 
+// ─── UPDATE ────────────────────────────────────────────────────────────────────
 export async function updateContractorType(payload) {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "UPDATE PM_CONTRACTOR_TYPE SET NAME = :name WHERE ID = :id",
-      { id: payload.ID, name: payload.NAME },
+      `UPDATE ${TABLE} SET NAME = :name WHERE ID = :id`,
+      {
+        name: payload.NAME,
+        id:   Number(payload.ID),
+      },
       { autoCommit: true }
     );
     return { success: result.rowsAffected > 0 };
@@ -51,12 +58,13 @@ export async function updateContractorType(payload) {
   }
 }
 
+// ─── DELETE ────────────────────────────────────────────────────────────────────
 export async function deleteContractorType(payload) {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "DELETE FROM PM_CONTRACTOR_TYPE WHERE ID = :id",
-      { id: payload.ID },
+      `DELETE FROM ${TABLE} WHERE ID = :id`,
+      { id: Number(payload.ID) },
       { autoCommit: true }
     );
     return { success: result.rowsAffected > 0 };

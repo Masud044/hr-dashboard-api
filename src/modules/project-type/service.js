@@ -1,11 +1,14 @@
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 
+const TABLE = "PM_PROJECT_TYPE";
+
+// ─── LIST ──────────────────────────────────────────────────────────────────────
 export async function listProjectTypes() {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "SELECT ID, NAME, DESCRIPTION FROM PM_PROJECT_TYPE ORDER BY ID",
+      `SELECT ID, NAME, DESCRIPTION FROM ${TABLE} ORDER BY ID`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
@@ -15,41 +18,56 @@ export async function listProjectTypes() {
   }
 }
 
-export async function createProjectType(payload) {
+// ─── GET BY ID ─────────────────────────────────────────────────────────────────
+export async function getProjectTypeById(id) {
   const connection = await getConnection();
   try {
-    const seqResult = await connection.execute(
-      "SELECT NVL(MAX(ID),0)+1 AS NEW_ID FROM PM_PROJECT_TYPE",
-      {},
+    const result = await connection.execute(
+      `SELECT ID, NAME, DESCRIPTION FROM ${TABLE} WHERE ID = :id`,
+      { id: Number(id) },
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
-    const newId = seqResult.rows?.[0]?.NEW_ID;
-
-    const insertResult = await connection.execute(
-      "INSERT INTO PM_PROJECT_TYPE (ID, NAME, DESCRIPTION) VALUES (:id, :name, :description)",
-      {
-        id: newId,
-        name: payload.NAME,
-        description: payload.DESCRIPTION ?? null
-      },
-      { autoCommit: true }
-    );
-
-    return { success: insertResult.rowsAffected > 0, id: newId };
+    return result.rows?.[0] ?? null;
   } finally {
     await connection.close();
   }
 }
 
+// ─── CREATE — trigger generates ID, use RETURNING to get it back ───────────────
+export async function createProjectType(payload) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `INSERT INTO ${TABLE} (NAME, DESCRIPTION)
+       VALUES (:name, :description)
+       RETURNING ID INTO :newId`,
+      {
+        name:        payload.NAME,
+        description: payload.DESCRIPTION ?? null,
+        newId:       { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+      },
+      { autoCommit: true }
+    );
+
+    const newId = result.outBinds.newId[0];
+    return { success: true, id: newId };
+  } finally {
+    await connection.close();
+  }
+}
+
+// ─── UPDATE ────────────────────────────────────────────────────────────────────
 export async function updateProjectType(payload) {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "UPDATE PM_PROJECT_TYPE SET NAME = :name, DESCRIPTION = :description WHERE ID = :id",
+      `UPDATE ${TABLE}
+       SET NAME = :name, DESCRIPTION = :description
+       WHERE ID = :id`,
       {
-        name: payload.NAME,
+        name:        payload.NAME,
         description: payload.DESCRIPTION ?? null,
-        id: payload.ID
+        id:          Number(payload.ID),
       },
       { autoCommit: true }
     );
@@ -59,12 +77,13 @@ export async function updateProjectType(payload) {
   }
 }
 
+// ─── DELETE ────────────────────────────────────────────────────────────────────
 export async function deleteProjectType(payload) {
   const connection = await getConnection();
   try {
     const result = await connection.execute(
-      "DELETE FROM PM_PROJECT_TYPE WHERE ID = :id",
-      { id: payload.ID },
+      `DELETE FROM ${TABLE} WHERE ID = :id`,
+      { id: Number(payload.ID) },
       { autoCommit: true }
     );
     return { success: result.rowsAffected > 0 };
