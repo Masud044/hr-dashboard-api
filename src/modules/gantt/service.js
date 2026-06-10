@@ -4,14 +4,31 @@ import { getConnection } from "../../config/db.js";
 export async function listGantt({ h_id, l_id }) {
   const connection = await getConnection();
   try {
-    let sql = `SELECT L_ID, H_ID, C_P_ID, DESCRIPTION,
-      TO_CHAR(SCHEDULE_START_DATE,'YYYY-MM-DD') AS SCHEDULE_START_DATE,
-      TO_CHAR(SCHEDULE_END_DATE,'YYYY-MM-DD') AS SCHEDULE_END_DATE,
-      TO_CHAR(CREATION_DATE,'YYYY-MM-DD') AS CREATION_DATE,
-      TO_CHAR(UPDATED_DATE,'YYYY-MM-DD') AS UPDATED_DATE,
-      CREATION_BY, UPDATED_BY
-      FROM PM_SCHEDUL_L`;
+    let sql = `
+SELECT
+  SL.L_ID,
+  SL.H_ID,
+  SL.C_P_ID,
+  SL.DESCRIPTION,
 
+  CP.CONTRACTOR_ID,
+  C.CONTRATOR_NAME,
+
+  TO_CHAR(SL.SCHEDULE_START_DATE,'YYYY-MM-DD') AS SCHEDULE_START_DATE,
+  TO_CHAR(SL.SCHEDULE_END_DATE,'YYYY-MM-DD') AS SCHEDULE_END_DATE,
+  TO_CHAR(SL.CREATION_DATE,'YYYY-MM-DD') AS CREATION_DATE,
+  TO_CHAR(SL.UPDATED_DATE,'YYYY-MM-DD') AS UPDATED_DATE,
+
+  SL.CREATION_BY,
+  SL.UPDATED_BY
+
+FROM PM_SCHEDUL_L SL
+LEFT JOIN PM_CONSTRUCTION_PROCESS CP
+    ON CP.SUB_CONTRACT_ID = SL.C_P_ID
+
+LEFT JOIN PM_CONTRACTOR_INFO C
+    ON C.CONTRATOR_ID = CP.CONTRACTOR_ID
+`;
     const conditions = [];
     const binds = {};
     if (h_id) {
@@ -28,7 +45,7 @@ export async function listGantt({ h_id, l_id }) {
     sql += " ORDER BY L_ID";
 
     const result = await connection.execute(sql, binds, {
-      outFormat: oracledb.OUT_FORMAT_OBJECT
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
     });
     return result.rows || [];
   } finally {
@@ -44,14 +61,14 @@ export async function createGantt(payload) {
       const seqResult = await connection.execute(
         "SELECT PM_SCHEDUL_L_SEQ.NEXTVAL AS N FROM DUAL",
         {},
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );
       newId = seqResult.rows?.[0]?.N;
     } catch (error) {
       const fallback = await connection.execute(
         "SELECT NVL(MAX(L_ID),0)+1 AS N FROM PM_SCHEDUL_L",
         {},
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );
       newId = fallback.rows?.[0]?.N;
     }
@@ -67,12 +84,16 @@ export async function createGantt(payload) {
         DESCRIPTION: payload.DESCRIPTION ?? null,
         S_START: payload.SCHEDULE_START_DATE,
         S_END: payload.SCHEDULE_END_DATE,
-        CREATION_BY: payload.CREATION_BY ?? null
+        CREATION_BY: payload.CREATION_BY ?? null,
       },
-      { autoCommit: true }
+      { autoCommit: true },
     );
 
-    return { success: result.rowsAffected > 0, message: "Inserted", L_ID: newId };
+    return {
+      success: result.rowsAffected > 0,
+      message: "Inserted",
+      L_ID: newId,
+    };
   } finally {
     await connection.close();
   }
@@ -116,7 +137,11 @@ export async function updateGantt(payload) {
     fields.push("UPDATED_DATE = SYSDATE");
     const sql = `UPDATE PM_SCHEDUL_L SET ${fields.join(", ")} WHERE L_ID = :L_ID`;
     const result = await connection.execute(sql, binds, { autoCommit: true });
-    return { success: result.rowsAffected > 0, message: "Updated", L_ID: payload.L_ID };
+    return {
+      success: result.rowsAffected > 0,
+      message: "Updated",
+      L_ID: payload.L_ID,
+    };
   } finally {
     await connection.close();
   }
@@ -128,9 +153,13 @@ export async function deleteGantt(payload) {
     const result = await connection.execute(
       "DELETE FROM PM_SCHEDUL_L WHERE L_ID = :L_ID",
       { L_ID: payload.L_ID },
-      { autoCommit: true }
+      { autoCommit: true },
     );
-    return { success: result.rowsAffected > 0, message: "Deleted", L_ID: payload.L_ID };
+    return {
+      success: result.rowsAffected > 0,
+      message: "Deleted",
+      L_ID: payload.L_ID,
+    };
   } finally {
     await connection.close();
   }
