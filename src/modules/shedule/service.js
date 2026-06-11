@@ -125,20 +125,37 @@ export async function saveMasterDetail(data) {
   }
 }
 
+// ✅ UPDATED: P_NAME, PROJECT_START_PLAN, PROJECT_END_PLAN যোগ করা হয়েছে
 export async function searchMasterDetail(data) {
   const connection = await getConnection();
   try {
     const hId = Number(data?.h_id || 0);
-    let sql = `SELECT H_ID, P_ID, DESCRIPTION, CREATION_BY, UPDATED_BY,
-      TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
-      TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
-      FROM PM_SCHEDUL_H`;
+
+    let sql = `
+      SELECT
+        H.H_ID,
+        H.P_ID,
+        P.P_NAME,
+        H.DESCRIPTION,
+        H.CREATION_BY,
+        H.UPDATED_BY,
+        TO_CHAR(H.PROJECT_START_PLAN, 'YYYY-MM-DD') AS PROJECT_START_PLAN,
+        TO_CHAR(H.PROJECT_END_PLAN,   'YYYY-MM-DD') AS PROJECT_END_PLAN,
+        TO_CHAR(H.CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+        TO_CHAR(H.UPDATED_DATE,  'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
+      FROM PM_SCHEDUL_H H
+      JOIN PM_PROJECT P ON H.P_ID = P.P_ID
+    `;
+
     const binds = {};
     if (hId > 0) {
-      sql += " WHERE H_ID = :h_id_bv";
+      sql += " WHERE H.H_ID = :h_id_bv";
       binds.h_id_bv = hId;
     }
-    const result = await connection.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+
+    const result = await connection.execute(sql, binds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
     return result.rows || [];
   } finally {
     await connection.close();
@@ -155,10 +172,22 @@ export async function searchMasterDetailOnly(data) {
 
   const connection = await getConnection();
   try {
-    const headerSql = `SELECT H_ID, P_ID, DESCRIPTION, CREATION_BY, UPDATED_BY,
-      TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
-      TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
-      FROM PM_SCHEDUL_H WHERE H_ID = :h_id_bv`;
+    const headerSql = `
+      SELECT
+        H.H_ID,
+        H.P_ID,
+        P.P_NAME,
+        H.DESCRIPTION,
+        H.CREATION_BY,
+        H.UPDATED_BY,
+        TO_CHAR(H.PROJECT_START_PLAN, 'YYYY-MM-DD') AS PROJECT_START_PLAN,
+        TO_CHAR(H.PROJECT_END_PLAN,   'YYYY-MM-DD') AS PROJECT_END_PLAN,
+        TO_CHAR(H.CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+        TO_CHAR(H.UPDATED_DATE,  'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
+      FROM PM_SCHEDUL_H H
+      JOIN PM_PROJECT P ON H.P_ID = P.P_ID
+      WHERE H.H_ID = :h_id_bv
+    `;
 
     const headerResult = await connection.execute(
       headerSql,
@@ -170,11 +199,15 @@ export async function searchMasterDetailOnly(data) {
       return { notFound: true, hId };
     }
 
-    const lineSql = `SELECT L_ID, C_P_ID, DESCRIPTION,
-      TO_CHAR(SCHEDULE_START_DATE, 'YYYY-MM-DD') AS SCHEDULE_START_DATE,
-      TO_CHAR(SCHEDULE_END_DATE, 'YYYY-MM-DD') AS SCHEDULE_END_DATE,
-      CREATION_BY, UPDATED_BY
-      FROM PM_SCHEDUL_L WHERE H_ID = :h_id_bv ORDER BY L_ID`;
+    const lineSql = `
+      SELECT L_ID, C_P_ID, DESCRIPTION,
+        TO_CHAR(SCHEDULE_START_DATE, 'YYYY-MM-DD') AS SCHEDULE_START_DATE,
+        TO_CHAR(SCHEDULE_END_DATE,   'YYYY-MM-DD') AS SCHEDULE_END_DATE,
+        CREATION_BY, UPDATED_BY
+      FROM PM_SCHEDUL_L
+      WHERE H_ID = :h_id_bv
+      ORDER BY L_ID
+    `;
 
     const lineResult = await connection.execute(
       lineSql,
@@ -217,11 +250,7 @@ export async function deleteMasterDetail(data) {
     }
 
     await connection.commit();
-    return {
-      notFound: false,
-      hId,
-      linesDeleted
-    };
+    return { notFound: false, hId, linesDeleted };
   } catch (error) {
     await connection.rollback();
     throw error;
