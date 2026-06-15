@@ -350,3 +350,19 @@ export async function deleteContractorWithTypes(contractorId) {
     await connection.close();
   }
 }
+
+
+// ── SELECT contractor↔type mapping (for filtering dropdowns) ─────────────────
+export async function getContractorTypeInfoMap() {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `SELECT CONTRUCTOR_ID, CONTRUCTOR_TYPE FROM PM_CONTRACTOR_TYPE_INFO`,
+      {},
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return result.rows || [];
+  } finally {
+    await connection.close();
+  }
+}
