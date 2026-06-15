@@ -23,6 +23,7 @@ import contractorTypeInfoRoutes from "./modules/contractor-type-info/route.js";
 
 
 import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
+import projectNoteRoutes from "./modules/project-note/route.js";
 
 const app = express();
 
@@ -84,6 +85,8 @@ app.use("/api/v2/auth", authV2Route);
 
 app.use("/api/contractor-type-info", contractorTypeInfoRoutes);
 app.use("/api/owner-info", ownerInfoRoutes);
+app.use("/api/project-note", projectNoteRoutes);
+
 
 app.use(errorMiddleware);
 

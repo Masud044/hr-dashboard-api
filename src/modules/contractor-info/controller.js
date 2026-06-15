@@ -4,6 +4,7 @@ import {
   getContractorDetail,
   updateContractorWithTypes,
   deleteContractorWithTypes,
+   getContractorTypeInfoMap,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -153,6 +154,25 @@ export async function deleteContractor(req, res) {
     return res.status(500).json({
       success: false,
       message: "Failed to delete contractor.",
+      error: err.message,
+    });
+  }
+}
+
+
+
+// ─────────────────────────────────────────────
+//  GET /api/contractors/contractor-type-info
+// ─────────────────────────────────────────────
+export async function getContractorTypeInfo(req, res) {
+  try {
+    const data = await getContractorTypeInfoMap();
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error("[getContractorTypeInfo] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch contractor type info.",
       error: err.message,
     });
   }

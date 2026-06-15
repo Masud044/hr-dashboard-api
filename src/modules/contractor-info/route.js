@@ -5,6 +5,7 @@ import {
   getContractorById,
   updateContractor,
   deleteContractor,
+  getContractorTypeInfo,
 } from "./controller.js";
 
 const router = express.Router();
@@ -17,8 +18,10 @@ const router = express.Router();
 
 router.post("/",      createContractor);
 router.get("/",       getAllContractors);
+router.get("/contractor-type-info", getContractorTypeInfo); 
 router.get("/:id",    getContractorById);
 router.put("/:id",    updateContractor);
 router.delete("/:id", deleteContractor);
 
 export default router;
+
