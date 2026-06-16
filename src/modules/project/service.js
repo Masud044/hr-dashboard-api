@@ -1,59 +1,115 @@
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 
-export async function insertProject(data) {
+// ─────────────────────────────────────────────
+// PROJECT INSERT  (+ contractor types + docs)
+// ─────────────────────────────────────────────
+export async function insertProject(data, files = []) {
   const connection = await getConnection();
   try {
+    // 1️⃣ Insert project → get P_ID
     const result = await connection.execute(
-      `INSERT INTO PM_PROJECT
+      `INSERT INTO PM.PM_PROJECT
        (P_NAME, P_TYPE, P_ADDRESS, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
-        LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE, DESCRIPTION)
+        LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
+        DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS)
        VALUES
        (:P_NAME, :P_TYPE, :P_ADDRESS, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
-        :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE, :DESCRIPTION)
+        :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
+        :DESCRIPTION, :FILE_PATH, 'PENDING')
        RETURNING P_ID INTO :NEW_P_ID`,
       {
-        P_NAME:                 data.P_NAME ?? "",
-        P_TYPE:                 data.P_TYPE ?? "",
-        P_ADDRESS:              data.P_ADDRESS ?? "",
-        SUBWRB:                 data.SUBWRB ?? "",
-        POSTCODE:               data.POSTCODE ?? "",
-        STATE:                  data.STATE ?? "",
-        USER_ID:                Number(data.USER_ID ?? 0),
-        USER_BY:                Number(data.USER_BY ?? data.USER_ID ?? 0),
-        UPDATED_BY:             Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
-        LOT:                    data.LOT ?? null,
-        DP:                     data.DP ?? null,
-        INSURANCE_NO:           data.INSURANCE_NO ?? null,
-        // ✅ Oracle DATE type — string থেকে Date object এ convert
+        P_NAME:                data.P_NAME ?? "",
+        P_TYPE:                data.P_TYPE ?? "",
+        P_ADDRESS:             data.P_ADDRESS ?? "",
+        SUBWRB:                data.SUBWRB ?? "",
+        POSTCODE:              data.POSTCODE ?? "",
+        STATE:                 data.STATE ?? "",
+        USER_ID:               Number(data.USER_ID ?? 0),
+        USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
+        UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
+        LOT:                   data.LOT ?? null,
+        DP:                    data.DP ?? null,
+        INSURANCE_NO:          data.INSURANCE_NO ?? null,
         P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
-        P_TENTATIVE_END_DATE:   data.P_TENTATIVE_END_DATE   ? new Date(data.P_TENTATIVE_END_DATE)   : null,
-        P_CODE:                 data.P_CODE ?? null,
-        DESCRIPTION:            data.DESCRIPTION ?? null,
-        NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+        P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
+        P_CODE:                data.P_CODE ?? null,
+        DESCRIPTION:           data.DESCRIPTION ?? null,
+        FILE_PATH:             null,
+        NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
       },
-      { autoCommit: true }
+      { autoCommit: false }
     );
-    return result.outBinds.NEW_P_ID[0];
+
+    const P_ID = result.outBinds.NEW_P_ID[0];
+
+    // 2️⃣ FILE_PATH — logical reference (P_ID পাওয়ার পর)
+    const filePath = `/pm/${P_ID}/`;
+    await connection.execute(
+      `UPDATE PM.PM_PROJECT SET FILE_PATH = :fp WHERE P_ID = :pid`,
+      { fp: filePath, pid: P_ID },
+      { autoCommit: false }
+    );
+
+    // 3️⃣ Contractor Types
+    const contractorTypeIds = _parseIds(data.CONTRACTOR_TYPE_IDS);
+    for (const ctId of contractorTypeIds) {
+      await connection.execute(
+        `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
+         VALUES (:pid, :ctid)`,
+        { pid: P_ID, ctid: Number(ctId) },
+        { autoCommit: false }
+      );
+    }
+
+    // 4️⃣ Mandatory files → BLOB insert
+    for (const file of files) {
+      await _insertMandatoryDoc(connection, {
+        P_ID,
+        FILE_NAME:   file.originalname,
+        MIME_TYPE:   file.mimetype,
+        FILE_SIZE:   file.size,
+        FILE_BUFFER: file.buffer,   // multer memoryStorage থেকে Buffer
+        CREATION_BY: Number(data.USER_ID ?? 0),
+      });
+    }
+
+    // 5️⃣ Certificate placeholder rows — one per contractor type
+    for (const ctId of contractorTypeIds) {
+      await _insertCertPlaceholder(connection, {
+        P_ID,
+        CONTRACTOR_TYPE_ID: Number(ctId),
+        CREATION_BY: Number(data.USER_ID ?? 0),
+      });
+    }
+
+    await connection.commit();
+    return P_ID;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }
 }
 
+// ─────────────────────────────────────────────
+// PROJECT SEARCH
+// ─────────────────────────────────────────────
 export async function searchProject(p_id) {
   const connection = await getConnection();
   try {
     let sql = `
       SELECT
         P_ID, P_NAME, P_TYPE, P_ADDRESS, SUBWRB, POSTCODE, STATE, USER_ID,
-        TO_CHAR(CREATION_DATE,          'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
-        TO_CHAR(UPDATE_DATE,            'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
+        TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+        TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
         USER_BY, UPDATED_BY,
         LOT, DP, INSURANCE_NO,
         TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
-        TO_CHAR(P_TENTATIVE_END_DATE,   'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
-        P_CODE, DESCRIPTION
-      FROM PM_PROJECT`;
+        TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
+        P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS
+      FROM PM.PM_PROJECT`;
 
     const binds = {};
     if (p_id > 0) {
@@ -61,28 +117,99 @@ export async function searchProject(p_id) {
       binds.p_id_bv = p_id;
     }
 
-    const result = await connection.execute(sql, binds, {
-      outFormat: oracledb.OUT_FORMAT_OBJECT
+    const projResult = await connection.execute(sql, binds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
     });
-    return result.rows || [];
+    const projects = projResult.rows || [];
+
+    if (!projects.length) return projects;
+
+    if (p_id > 0) {
+      const proj = projects[0];
+
+      // Contractor types
+      const ctResult = await connection.execute(
+        `SELECT ID, CONTRACTOR_TYPE_ID,
+                TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE
+         FROM PM.PM_PROJECT_CONTRACTOR_TYPE
+         WHERE P_ID = :pid`,
+        { pid: p_id },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      proj.CONTRACTOR_TYPES = ctResult.rows || [];
+
+      // Docs — DOC_TYPE (BLOB) টাকে string এ convert করে return করো
+      // BLOB content (actual file binary) download route এ আলাদা দেওয়া হবে
+      const docResult = await connection.execute(
+        `SELECT ID, CONTRACTOR_TYPE_ID, FILE_NAME, FILE_PATH, MIME_TYPE, FILE_SIZE,
+                UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 20, 1)) AS DOC_FILE_LABEL,
+                UPLOAD_STATUS,
+                TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE
+         FROM PM.PM_PROJECT_DOC
+         WHERE P_ID = :pid
+         ORDER BY UPLOAD_STATUS DESC, ID`,
+        { pid: p_id },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      proj.DOCS = docResult.rows || [];
+    }
+
+    return projects;
   } finally {
     await connection.close();
   }
 }
 
-export async function updateProject(data) {
+// ─────────────────────────────────────────────
+// FILE DOWNLOAD  (BLOB streaming)
+// ─────────────────────────────────────────────
+export async function getDocBlob(doc_id) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `SELECT FILE_NAME, MIME_TYPE, FILE_SIZE, DOC_FILE AS FILE_BLOB
+       FROM PM.PM_PROJECT_DOC
+       WHERE ID = :id`,
+      { id: Number(doc_id) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    if (!result.rows?.length) return null;
+    const row = result.rows[0];
+
+    // BLOB → Buffer
+    let buffer = null;
+    if (row.FILE_BLOB) {
+      buffer = await _blobToBuffer(row.FILE_BLOB);
+    }
+
+    return {
+      fileName: row.FILE_NAME,
+      mimeType: row.MIME_TYPE,
+      fileSize: row.FILE_SIZE,
+      buffer,
+    };
+  } finally {
+    await connection.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// PROJECT UPDATE
+// ─────────────────────────────────────────────
+export async function updateProject(data, files = []) {
   const connection = await getConnection();
   try {
     const p_id = Number(data.P_ID || 0);
-    const set = [];
+    const set   = [];
     const binds = {
       p_id_bv:       p_id,
-      updated_by_bv: Number(data.UPDATED_BY)
+      updated_by_bv: Number(data.UPDATED_BY),
     };
 
     const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "SUBWRB", "POSTCODE", "STATE"];
     const numberFields    = ["USER_ID"];
-    const newStringFields = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
+    const nullableStrings = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
     const dateFields      = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
 
     for (const field of stringFields) {
@@ -92,7 +219,6 @@ export async function updateProject(data) {
         binds[key] = data[field];
       }
     }
-
     for (const field of numberFields) {
       if (Object.prototype.hasOwnProperty.call(data, field)) {
         const key = field.toLowerCase();
@@ -100,47 +226,207 @@ export async function updateProject(data) {
         binds[key] = Number(data[field]);
       }
     }
-
-    for (const field of newStringFields) {
+    for (const field of nullableStrings) {
       if (Object.prototype.hasOwnProperty.call(data, field)) {
         const key = field.toLowerCase();
         set.push(`${field} = :${key}`);
         binds[key] = data[field] ?? null;
       }
     }
-
     for (const field of dateFields) {
       if (Object.prototype.hasOwnProperty.call(data, field)) {
         const key = field.toLowerCase();
         set.push(`${field} = :${key}`);
-        // ✅ Oracle DATE type — string থেকে Date object এ convert
         binds[key] = data[field] ? new Date(data[field]) : null;
       }
     }
 
     set.push("UPDATE_DATE = SYSDATE");
-    set.push("UPDATED_BY = :updated_by_bv");
+    set.push("UPDATED_BY  = :updated_by_bv");
 
     if (set.length <= 2) return 0;
 
-    const sql = `UPDATE PM_PROJECT SET ${set.join(", ")} WHERE P_ID = :p_id_bv`;
-    const result = await connection.execute(sql, binds, { autoCommit: true });
-    return result.rowsAffected;
+    const sql = `UPDATE PM.PM_PROJECT SET ${set.join(", ")} WHERE P_ID = :p_id_bv`;
+    const upResult = await connection.execute(sql, binds, { autoCommit: false });
+
+    // Contractor types পরিবর্তন হলে
+    if (Object.prototype.hasOwnProperty.call(data, "CONTRACTOR_TYPE_IDS")) {
+      const newIds = _parseIds(data.CONTRACTOR_TYPE_IDS);
+
+      await connection.execute(
+        `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
+        { pid: p_id },
+        { autoCommit: false }
+      );
+      // পুরনো CERTIFICATE placeholder গুলো (file নেই এমন) মুছে দাও
+      await connection.execute(
+        `DELETE FROM PM.PM_PROJECT_DOC
+         WHERE P_ID = :pid AND UPLOAD_STATUS = 'PENDING'
+           AND UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 11, 1)) = 'CERTIFICATE'`,
+        { pid: p_id },
+        { autoCommit: false }
+      );
+
+      for (const ctId of newIds) {
+        await connection.execute(
+          `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
+           VALUES (:pid, :ctid)`,
+          { pid: p_id, ctid: Number(ctId) },
+          { autoCommit: false }
+        );
+        await _insertCertPlaceholder(connection, {
+          P_ID: p_id,
+          CONTRACTOR_TYPE_ID: Number(ctId),
+          CREATION_BY: Number(data.UPDATED_BY),
+        });
+      }
+    }
+
+    // নতুন mandatory files
+    for (const file of files) {
+      await _insertMandatoryDoc(connection, {
+        P_ID:        p_id,
+        FILE_NAME:   file.originalname,
+        MIME_TYPE:   file.mimetype,
+        FILE_SIZE:   file.size,
+        FILE_BUFFER: file.buffer,
+        CREATION_BY: Number(data.UPDATED_BY),
+      });
+    }
+
+    await connection.commit();
+    return upResult.rowsAffected;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }
 }
 
+// ─────────────────────────────────────────────
+// PROJECT DELETE
+// ─────────────────────────────────────────────
 export async function deleteProject(p_id) {
   const connection = await getConnection();
   try {
-    const result = await connection.execute(
-      "DELETE FROM PM_PROJECT WHERE P_ID = :p_id_bv",
-      { p_id_bv: Number(p_id) },
-      { autoCommit: true }
+    await connection.execute(
+      `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
+      { pid: Number(p_id) },
+      { autoCommit: false }
     );
+    await connection.execute(
+      `DELETE FROM PM.PM_PROJECT_DOC WHERE P_ID = :pid`,
+      { pid: Number(p_id) },
+      { autoCommit: false }
+    );
+    const result = await connection.execute(
+      `DELETE FROM PM.PM_PROJECT WHERE P_ID = :pid`,
+      { pid: Number(p_id) },
+      { autoCommit: false }
+    );
+    await connection.commit();
     return result.rowsAffected;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }
+}
+
+// ─────────────────────────────────────────────
+// PRIVATE HELPERS
+// ─────────────────────────────────────────────
+
+/**
+ * Mandatory file → DOC_TYPE BLOB তে file content ("MANDATORY" label + binary)
+ * Oracle BLOB এ string label store করতে হলে UTL_RAW ব্যবহার করতে হয়।
+ * তবে এখানে DOC_TYPE BLOB column এ আমরা actual file binary store করছি
+ * এবং DOC_TYPE label টা আলাদাভাবে UPLOAD_STATUS দিয়ে distinguish করছি।
+ *
+ * Schema: DOC_TYPE BLOB = actual file binary content
+ *         UPLOAD_STATUS  = 'UPLOADED' | 'PENDING'
+ *         FILE_NAME, MIME_TYPE, FILE_SIZE = metadata
+ */
+async function _insertMandatoryDoc(connection, doc) {
+  // Step 1: empty BLOB row insert করো, RETURNING BLOB locator নাও
+  const insertResult = await connection.execute(
+    `INSERT INTO PM.PM_PROJECT_DOC
+     (P_ID, CONTRACTOR_TYPE_ID, FILE_NAME, MIME_TYPE, FILE_SIZE,
+      DOC_FILE, UPLOAD_STATUS, CREATION_BY)
+     VALUES
+     (:pid, NULL, :fname, :mime, :fsize,
+      EMPTY_BLOB(), 'UPLOADED', :cby)
+     RETURNING DOC_FILE INTO :blob_out`,
+    {
+      pid:      doc.P_ID,
+      fname:    doc.FILE_NAME,
+      mime:     doc.MIME_TYPE,
+      fsize:    doc.FILE_SIZE,
+      cby:      doc.CREATION_BY ?? 0,
+      blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
+    },
+    { autoCommit: false }
+  );
+
+  // Step 2: BLOB locator এ file buffer লিখে দাও
+  const blobLob = insertResult.outBinds.blob_out[0];
+  await _writeBufferToBlob(blobLob, doc.FILE_BUFFER);
+}
+
+async function _insertCertPlaceholder(connection, doc) {
+  // Certificate placeholder — DOC_TYPE BLOB তে 'CERTIFICATE' string store
+  const labelBuffer = Buffer.from("CERTIFICATE");
+  const insertResult = await connection.execute(
+    `INSERT INTO PM.PM_PROJECT_DOC
+
+     (P_ID, CONTRACTOR_TYPE_ID, FILE_NAME, MIME_TYPE, FILE_SIZE,
+      DOC_FILE, UPLOAD_STATUS, CREATION_BY)
+     VALUES
+     (:pid, :ctid, NULL, NULL, NULL,
+      EMPTY_BLOB(), 'PENDING', :cby)
+     RETURNING DOC_FILE INTO :blob_out`,
+    {
+      pid:      doc.P_ID,
+      ctid:     doc.CONTRACTOR_TYPE_ID,
+      cby:      doc.CREATION_BY ?? 0,
+      blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
+    },
+    { autoCommit: false }
+  );
+
+  const blobLob = insertResult.outBinds.blob_out[0];
+  await _writeBufferToBlob(blobLob, labelBuffer);
+}
+
+// Buffer → Oracle LOB stream write
+function _writeBufferToBlob(lob, buffer) {
+  return new Promise((resolve, reject) => {
+    lob.on("error", reject);
+    lob.on("finish", resolve);
+    lob.write(buffer);
+    lob.end();
+  });
+}
+
+// Oracle LOB → Buffer (download এর জন্য)
+function _blobToBuffer(lob) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    lob.on("data",  (chunk) => chunks.push(chunk));
+    lob.on("end",   () => resolve(Buffer.concat(chunks)));
+    lob.on("error", reject);
+  });
+}
+
+function _parseIds(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(Number).filter(Boolean);
+  if (typeof value === "string") {
+    try { return JSON.parse(value).map(Number).filter(Boolean); } catch {
+      return value.split(",").map(Number).filter(Boolean);
+    }
+  }
+  return [];
 }

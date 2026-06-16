@@ -1,40 +1,146 @@
-import { insertProject, searchProject, updateProject, deleteProject } from "./service.js";
+import multer from "multer";
+import {
+  insertProject,
+  searchProject,
+  updateProject,
+  deleteProject,
+  getDocBlob,
+} from "./service.js";
 
+// ─────────────────────────────────────────────
+// Multer — memoryStorage (disk এ কিছু লেখে না)
+// File content সরাসরি Buffer হিসেবে আসে → BLOB এ যাবে
+// ─────────────────────────────────────────────
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
+  fileFilter(_req, file, cb) {
+    const allowed = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error(`File type "${file.mimetype}" is not allowed.`));
+  },
+}).array("MANDATORY_FILES", 20);  // field name: MANDATORY_FILES
+
+function runUpload(req, res) {
+  return new Promise((resolve, reject) =>
+    upload(req, res, (err) => (err ? reject(err) : resolve()))
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN PROJECT HANDLER
+// ─────────────────────────────────────────────
 export async function handleProject(req, res) {
+  // ── POST  ────────────────────────────────────
   if (req.method === "POST") {
-    if (!req.body?.P_NAME || !req.body?.USER_ID) {
-      return res.status(400).json({ success: false, message: "P_NAME and USER_ID are required." });
+    try {
+      await runUpload(req, res);
+    } catch (err) {
+      return res.status(400).json({ success: false, message: err.message });
     }
-    const P_ID = await insertProject(req.body);
+
+    const body = req.body;
+    if (!body?.P_NAME || !body?.USER_ID) {
+      return res.status(400).json({
+        success: false,
+        message: "P_NAME and USER_ID are required.",
+      });
+    }
+
+    const P_ID = await insertProject(body, req.files ?? []);
     return res.status(201).json({ success: true, message: "Project created.", P_ID });
   }
 
+  // ── GET  ─────────────────────────────────────
   if (req.method === "GET") {
     const p_id = Number(req.query.p_id || 0);
     const data = await searchProject(p_id);
+
     if (p_id > 0 && !data.length) {
-      return res.status(404).json({ success: false, message: `Project with ID ${p_id} not found.` });
+      return res.status(404).json({
+        success: false,
+        message: `Project with ID ${p_id} not found.`,
+      });
     }
     return res.json({ success: true, count: data.length, data });
   }
 
+  // ── PUT  ─────────────────────────────────────
   if (req.method === "PUT") {
-    if (!req.body?.P_ID || !req.body?.UPDATED_BY) {
-      return res.status(400).json({ success: false, message: "P_ID and UPDATED_BY are required for update." });
+    try {
+      await runUpload(req, res);
+    } catch (err) {
+      return res.status(400).json({ success: false, message: err.message });
     }
-    const rows = await updateProject(req.body);
+
+    const body = req.body;
+    if (!body?.P_ID || !body?.UPDATED_BY) {
+      return res.status(400).json({
+        success: false,
+        message: "P_ID and UPDATED_BY are required for update.",
+      });
+    }
+
+    const rows = await updateProject(body, req.files ?? []);
     if (!rows) {
-      return res.status(404).json({ success: false, message: `Project with ID ${req.body.P_ID} not found or no changes made.` });
+      return res.status(404).json({
+        success: false,
+        message: `Project with ID ${body.P_ID} not found or no changes made.`,
+      });
     }
-    return res.json({ success: true, message: `Project ${req.body.P_ID} updated successfully.` });
+    return res.json({
+      success: true,
+      message: `Project ${body.P_ID} updated successfully.`,
+    });
   }
 
+  // ── DELETE  ──────────────────────────────────
   if (req.method === "DELETE") {
-    if (!req.body?.P_ID) return res.status(400).json({ success: false, message: "P_ID is required for deletion." });
+    if (!req.body?.P_ID) {
+      return res.status(400).json({
+        success: false,
+        message: "P_ID is required for deletion.",
+      });
+    }
     const rows = await deleteProject(req.body.P_ID);
-    if (!rows) return res.status(404).json({ success: false, message: `Project with ID ${req.body.P_ID} not found.` });
-    return res.json({ success: true, message: `Project ${req.body.P_ID} deleted successfully.` });
+    if (!rows) {
+      return res.status(404).json({
+        success: false,
+        message: `Project with ID ${req.body.P_ID} not found.`,
+      });
+    }
+    return res.json({
+      success: true,
+      message: `Project ${req.body.P_ID} deleted successfully.`,
+    });
   }
 
   return res.status(405).json({ success: false, message: "Method not supported." });
+}
+
+// ─────────────────────────────────────────────
+// FILE DOWNLOAD HANDLER
+// GET /project/doc/:id  → BLOB কে stream করে browser এ পাঠায়
+// ─────────────────────────────────────────────
+export async function handleDocDownload(req, res) {
+  const doc_id = Number(req.params.id || 0);
+  if (!doc_id) {
+    return res.status(400).json({ success: false, message: "doc id is required." });
+  }
+
+  const doc = await getDocBlob(doc_id);
+  if (!doc || !doc.buffer) {
+    return res.status(404).json({ success: false, message: "Document not found." });
+  }
+
+  res.setHeader("Content-Type",        doc.mimeType ?? "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${doc.fileName ?? "file"}"`);
+  res.setHeader("Content-Length",      doc.buffer.length);
+  res.end(doc.buffer);
 }
