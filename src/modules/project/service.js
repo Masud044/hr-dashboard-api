@@ -430,3 +430,73 @@ function _parseIds(value) {
   }
   return [];
 }
+
+
+// ─────────────────────────────────────────────
+// service.js এ এই ফাংশনটা যুক্ত করুন (export করে)
+// বিদ্যমান _writeBufferToBlob হেল্পার ব্যবহার করে — নতুন কিছু লাগবে না
+// ─────────────────────────────────────────────
+
+/**
+ * Certificate upload — একটা EXISTING PENDING row (CONTRACTOR_TYPE_ID থাকা,
+ * DOC_FILE = 'CERTIFICATE' label) কে actual file দিয়ে update করে।
+ * _insertMandatoryDoc এর মতো নতুন row insert করে না, বরং in-place update করে।
+ *
+ * @param {number} doc_id      - PM_PROJECT_DOC.ID (যেই PENDING row আপডেট হবে)
+ * @param {object} file        - multer file object { originalname, mimetype, size, buffer }
+ * @param {number} updated_by  - USER_ID যিনি আপলোড করছেন
+ * @returns {object|null}      - { P_ID, ID } আপডেট সফল হলে, না হলে null
+ */
+export async function uploadCertificateDoc(doc_id, file, updated_by) {
+  const connection = await getConnection();
+  try {
+    // 1️⃣ নিশ্চিত করো এই row টা আসলেই একটা PENDING certificate placeholder
+    //    (CONTRACTOR_TYPE_ID থাকা মানেই certificate, mandatory doc এ এটা NULL)
+    const checkResult = await connection.execute(
+      `SELECT ID, P_ID, CONTRACTOR_TYPE_ID, UPLOAD_STATUS
+       FROM PM.PM_PROJECT_DOC
+       WHERE ID = :id`,
+      { id: Number(doc_id) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const row = checkResult.rows?.[0];
+    if (!row) return null;                          // doc id ই নেই
+    if (row.CONTRACTOR_TYPE_ID == null) return null; // এটা mandatory doc, certificate না
+    if (row.UPLOAD_STATUS === "UPLOADED") return null; // আগেই আপলোড হয়ে গেছে, re-upload রোধ
+
+    // 2️⃣ ফাঁকা BLOB এ পয়েন্টার নিয়ে মেটাডেটা + স্ট্যাটাস একসাথে আপডেট করো
+    const updateResult = await connection.execute(
+      `UPDATE PM.PM_PROJECT_DOC
+       SET FILE_NAME     = :fname,
+           MIME_TYPE      = :mime,
+           FILE_SIZE      = :fsize,
+           DOC_FILE       = EMPTY_BLOB(),
+           UPLOAD_STATUS  = 'UPLOADED',
+           CREATION_BY    = :cby
+       WHERE ID = :id
+       RETURNING DOC_FILE INTO :blob_out`,
+      {
+        id:       Number(doc_id),
+        fname:    file.originalname,
+        mime:     file.mimetype,
+        fsize:    file.size,
+        cby:      Number(updated_by ?? 0),
+        blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
+      },
+      { autoCommit: false }
+    );
+
+    // 3️⃣ BLOB locator এ actual file বাফার লিখে দাও
+    const blobLob = updateResult.outBinds.blob_out[0];
+    await _writeBufferToBlob(blobLob, file.buffer);
+
+    await connection.commit();
+    return { P_ID: row.P_ID, ID: row.ID };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
