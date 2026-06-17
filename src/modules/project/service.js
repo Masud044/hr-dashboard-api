@@ -1,5 +1,7 @@
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
+import { sendMail } from "../../utils/mailer.js";
+import { bulkContractorTemplate } from "../../tamplate/contractor-email.js";
 
 // ─────────────────────────────────────────────
 // PROJECT INSERT  (+ contractor types + docs)
@@ -496,6 +498,57 @@ export async function uploadCertificateDoc(doc_id, file, updated_by) {
   } catch (err) {
     await connection.rollback();
     throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID }) {
+  const ids = (CONTRACTOR_IDS || []).map(Number).filter(Boolean);
+  if (!ids.length) return { sent: 0, failed: 0, total: 0 };
+
+  const connection = await getConnection();
+  try {
+    const placeholders = ids.map((_, i) => `:id${i}`).join(",");
+    const binds = {};
+    ids.forEach((id, i) => (binds[`id${i}`] = id));
+
+    const result = await connection.execute(
+      `SELECT CONTRATOR_ID, CONTRATOR_NAME, EMAIL
+       FROM PM.PM_CONTRACTOR_INFO
+       WHERE CONTRATOR_ID IN (${placeholders}) AND EMAIL IS NOT NULL`,
+      binds,
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    const contractors = result.rows || [];
+    if (!contractors.length) return { sent: 0, failed: 0, total: 0 };
+
+    let project = null;
+    if (P_ID) {
+      const projRes = await connection.execute(
+        `SELECT P_NAME, P_ADDRESS FROM PM.PM_PROJECT WHERE P_ID = :pid`,
+        { pid: Number(P_ID) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      project = projRes.rows?.[0] || null;
+    }
+
+    const results = await Promise.allSettled(
+      contractors.map((c) =>
+        sendMail({
+          to: c.EMAIL,
+          subject: SUBJECT,
+          html: bulkContractorTemplate({
+            contractorName: c.CONTRATOR_NAME,
+            message: MESSAGE,
+            projectName: project?.P_NAME,
+            projectAddress: project?.P_ADDRESS,
+          }),
+        })
+      )
+    );
+
+    const sent = results.filter((r) => r.status === "fulfilled").length;
+    return { sent, failed: results.length - sent, total: contractors.length };
   } finally {
     await connection.close();
   }
