@@ -5,6 +5,7 @@ import {
   updateProject,
   deleteProject,
   getDocBlob,
+  uploadCertificateDoc,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -143,4 +144,86 @@ export async function handleDocDownload(req, res) {
   res.setHeader("Content-Disposition", `inline; filename="${doc.fileName ?? "file"}"`);
   res.setHeader("Content-Length",      doc.buffer.length);
   res.end(doc.buffer);
+}
+
+// ─────────────────────────────────────────────
+// controller.js এ এই import + ফাংশন যুক্ত করুন
+// ─────────────────────────────────────────────
+
+// imports এর মধ্যে uploadCertificateDoc যুক্ত করুন:
+// import {
+//   insertProject,
+//   searchProject,
+//   updateProject,
+//   deleteProject,
+//   getDocBlob,
+//   uploadCertificateDoc,   // ← নতুন
+// } from "./service.js";
+
+// ─────────────────────────────────────────────
+// Certificate উপলোডের জন্য আলাদা multer instance
+// field name: CERTIFICATE_FILE, শুধুমাত্র ১টা ফাইল
+// ─────────────────────────────────────────────
+const uploadCertificate = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter(_req, file, cb) {
+    const allowed = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    if (allowed.includes(file.mimetype)) return cb(null, true);
+    cb(new Error(`File type "${file.mimetype}" is not allowed.`));
+  },
+}).single("CERTIFICATE_FILE"); // field name: CERTIFICATE_FILE
+
+function runCertificateUpload(req, res) {
+  return new Promise((resolve, reject) =>
+    uploadCertificate(req, res, (err) => (err ? reject(err) : resolve()))
+  );
+}
+
+// ─────────────────────────────────────────────
+// CERTIFICATE UPLOAD HANDLER
+// PUT /project/doc/:id/upload   (multipart/form-data, field: CERTIFICATE_FILE)
+// ─────────────────────────────────────────────
+export async function handleCertificateUpload(req, res) {
+  const doc_id = Number(req.params.id || 0);
+  if (!doc_id) {
+    return res.status(400).json({ success: false, message: "doc id is required." });
+  }
+
+  try {
+    await runCertificateUpload(req, res);
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: "No file uploaded. Use field name CERTIFICATE_FILE.",
+    });
+  }
+
+  const updated_by = Number(req.body?.UPDATED_BY || 0);
+
+  const result = await uploadCertificateDoc(doc_id, req.file, updated_by);
+
+  if (!result) {
+    return res.status(404).json({
+      success: false,
+      message: "Certificate not found, already uploaded, or invalid doc id.",
+    });
+  }
+
+  return res.json({
+    success: true,
+    message: "Certificate uploaded successfully.",
+    P_ID: result.P_ID,
+    DOC_ID: result.ID,
+  });
 }
