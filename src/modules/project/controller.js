@@ -6,6 +6,7 @@ import {
   deleteProject,
   getDocBlob,
   uploadCertificateDoc,
+  sendBulkEmailToContractors
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -226,4 +227,22 @@ export async function handleCertificateUpload(req, res) {
     P_ID: result.P_ID,
     DOC_ID: result.ID,
   });
+}
+
+// controller.js — notun handler
+
+
+export async function handleNotifyContractors(req, res) {
+  const { CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID } = req.body;
+  if (!Array.isArray(CONTRACTOR_IDS) || !CONTRACTOR_IDS.length || !SUBJECT || !MESSAGE) {
+    return res.status(400).json({
+      success: false,
+      message: "CONTRACTOR_IDS (array), SUBJECT and MESSAGE are required.",
+    });
+  }
+  const result = await sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID });
+  if (!result.total) {
+    return res.status(404).json({ success: false, message: "No contractor emails found." });
+  }
+  return res.json({ success: true, message: `Sent ${result.sent}/${result.total} emails.`, ...result });
 }
