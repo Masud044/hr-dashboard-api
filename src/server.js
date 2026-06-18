@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+dotenv.config(); 
 import app from "./app.js";
 import { closePool, initializePool } from "./config/db.js";
 

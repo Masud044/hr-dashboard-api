@@ -244,5 +244,18 @@ export async function handleNotifyContractors(req, res) {
   if (!result.total) {
     return res.status(404).json({ success: false, message: "No contractor emails found." });
   }
-  return res.json({ success: true, message: `Sent ${result.sent}/${result.total} emails.`, ...result });
+  if (result.failed > 0) {
+  return res.status(500).json({
+    success: false,
+    message: `Failed to send ${result.failed} email(s).`,
+    ...result,
+  });
 }
+
+return res.json({
+  success: true,
+  message: `Sent ${result.sent}/${result.total} emails.`,
+  ...result,
+});
+}
+
