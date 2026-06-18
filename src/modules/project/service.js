@@ -503,8 +503,61 @@ export async function uploadCertificateDoc(doc_id, file, updated_by) {
   }
 }
 
+// export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID }) {
+//   const ids = (CONTRACTOR_IDS || []).map(Number).filter(Boolean);
+//   if (!ids.length) return { sent: 0, failed: 0, total: 0 };
+
+//   const connection = await getConnection();
+//   try {
+//     const placeholders = ids.map((_, i) => `:id${i}`).join(",");
+//     const binds = {};
+//     ids.forEach((id, i) => (binds[`id${i}`] = id));
+
+//     const result = await connection.execute(
+//       `SELECT CONTRATOR_ID, CONTRATOR_NAME, EMAIL
+//        FROM PM.PM_CONTRACTOR_INFO
+//        WHERE CONTRATOR_ID IN (${placeholders}) AND EMAIL IS NOT NULL`,
+//       binds,
+//       { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//     );
+//     const contractors = result.rows || [];
+//     if (!contractors.length) return { sent: 0, failed: 0, total: 0 };
+
+//     let project = null;
+//     if (P_ID) {
+//       const projRes = await connection.execute(
+//         `SELECT P_NAME, P_ADDRESS FROM PM.PM_PROJECT WHERE P_ID = :pid`,
+//         { pid: Number(P_ID) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//       );
+//       project = projRes.rows?.[0] || null;
+//     }
+
+//     const results = await Promise.allSettled(
+//       contractors.map((c) =>
+//         sendMail({
+//           to: c.EMAIL,
+//           subject: SUBJECT,
+//           html: bulkContractorTemplate({
+//             contractorName: c.CONTRATOR_NAME,
+//             message: MESSAGE,
+//             projectName: project?.P_NAME,
+//             projectAddress: project?.P_ADDRESS,
+//           }),
+//         })
+//       )
+//     );
+
+//     const sent = results.filter((r) => r.status === "fulfilled").length;
+//     return { sent, failed: results.length - sent, total: contractors.length };
+//   } finally {
+//     await connection.close();
+//   }
+// }
+
 export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID }) {
   const ids = (CONTRACTOR_IDS || []).map(Number).filter(Boolean);
+  console.log("🔍 [service] Parsed contractor IDs:", ids);
+
   if (!ids.length) return { sent: 0, failed: 0, total: 0 };
 
   const connection = await getConnection();
@@ -521,7 +574,16 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     const contractors = result.rows || [];
-    if (!contractors.length) return { sent: 0, failed: 0, total: 0 };
+
+    console.log(`📋 [service] Found ${contractors.length} contractor(s) with email:`);
+    contractors.forEach((c) =>
+      console.log(`   → ID: ${c.CONTRATOR_ID} | Name: ${c.CONTRATOR_NAME} | Email: ${c.EMAIL}`)
+    );
+
+    if (!contractors.length) {
+      console.log("⚠️ [service] No contractors matched IDs or none have EMAIL set");
+      return { sent: 0, failed: 0, total: 0 };
+    }
 
     let project = null;
     if (P_ID) {
@@ -546,6 +608,17 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
         })
       )
     );
+
+    console.log("───── 📬 Per-Email Result ─────");
+    results.forEach((r, i) => {
+      const c = contractors[i];
+      if (r.status === "fulfilled") {
+        console.log(`✅ SENT   → ${c.EMAIL} (${c.CONTRATOR_NAME}) | messageId: ${r.value?.messageId}`);
+      } else {
+        console.log(`❌ FAILED → ${c.EMAIL} (${c.CONTRATOR_NAME}) | reason: ${r.reason?.message}`);
+      }
+    });
+    console.log("───────────────────────────────");
 
     const sent = results.filter((r) => r.status === "fulfilled").length;
     return { sent, failed: results.length - sent, total: contractors.length };
