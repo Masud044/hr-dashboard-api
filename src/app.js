@@ -19,6 +19,8 @@ import empImageRoutes from "./modules/employee-image/employee-image.routes.js";
 import contractorTypeInfoRoutes from "./modules/contractor-type-info/route.js";
  import ownerInfoRoutes from "./modules/owner-info/route.js";
  // Barrel export — import from here in app.js / server.js
+ import statementRouter from './modules/project-statement/route.js';
+
 
 
 
@@ -71,6 +73,7 @@ app.use("/api/construction-process", constructionProcessRoutes);
 
 app.use("/api/emp-images", empImageRoutes);
 app.use("/api/users", userManagementRoutes);
+app.use('/api/statement', statementRouter);
 
 app.use("/api/v2/auth", authV2Route);
 
