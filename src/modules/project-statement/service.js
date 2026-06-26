@@ -13,7 +13,7 @@ const PLACE_KEYWORDS = [
   'insulshop', 'crazy domains', 'crazydomains', 'sand 4 u',
   'turbo', 'tpg', 'amaysim', 'xero', 'fisher paykel', 'microsoft'
 ];
- 
+
 const PRODUCT_KEYWORDS = [
   'insurance', 'internet', 'mobile', 'direct debit',
   'loan', 'salary', 'super', 'tax office', 'xero',
@@ -22,7 +22,7 @@ const PRODUCT_KEYWORDS = [
   'fast transfer', 'direct credit', 'credit', 'debit',
   'transfer', 'netbank', 'commbank', 'bpay'
 ];
- 
+
 function normalize(s) {
   let v = (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
   // street-type abbreviations: normalize both directions to one canonical form
@@ -48,7 +48,7 @@ function normalize(s) {
   }
   return v;
 }
- 
+
 // ── CSV PARSER (handles quoted commas) ──
 function parseCSV(text) {
   const lines = [];
@@ -100,7 +100,7 @@ function parseCSV(text) {
   }
   return lines;
 }
- 
+
 function categorize(desc) {
   if (!desc) return 'other';
   const lower = normalize(desc);
@@ -112,7 +112,7 @@ function categorize(desc) {
   }
   return 'other';
 }
- 
+
 // ── PM_PROJECT theke shob project + address load kore, description-er sathe match ──
 async function loadProjectAddresses() {
   const result = await poolExecute(
@@ -122,10 +122,10 @@ async function loadProjectAddresses() {
     {},
     { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
- 
+
   console.log('[statement] PM_PROJECT raw rows fetched:', result.rows?.length || 0);
   console.log('[statement] sample row:', JSON.stringify(result.rows?.[0]));
- 
+
   const projects = (result.rows || []).map((r) => {
     const fullAddress = [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE]
       .filter(Boolean)
@@ -137,11 +137,11 @@ async function loadProjectAddresses() {
       fullAddress
     };
   });
- 
+
   console.log('[statement] addressKeys built:', projects.map(p => p.addressKey));
   return projects;
 }
- 
+
 function matchProject(desc, projects) {
   if (!desc) return null;
   const lower = normalize(desc);
@@ -159,11 +159,48 @@ function matchProject(desc, projects) {
   }
   return null;
 }
- 
+
+// ── PM_CONTRACTOR_INFO theke shob active contractor load kore, description-er sathe match ──
+async function loadContractors() {
+  const result = await poolExecute(
+    `SELECT CONTRATOR_ID, CONTRATOR_NAME
+     FROM PM.PM_CONTRACTOR_INFO
+     WHERE STATUS = 1 AND CONTRATOR_NAME IS NOT NULL`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+
+  return (result.rows || [])
+    .map((r) => ({
+      contractorId: r.CONTRATOR_ID,
+      contractorName: r.CONTRATOR_NAME,
+      nameKey: normalize(r.CONTRATOR_NAME)
+    }))
+    .filter((c) => c.nameKey && c.nameKey.length >= 4); // skip too-short/generic names
+}
+
+function matchContractor(desc, contractors) {
+  if (!desc) return null;
+  const lower = normalize(desc);
+  for (const c of contractors) {
+    if (lower.includes(c.nameKey)) {
+      return c;
+    }
+  }
+  return null;
+}
+
+// ── Description theke invoice number extract kora (e.g. "Inv 12345", "Invoice: 299") ──
+function extractInvoiceNo(desc) {
+  if (!desc) return null;
+  const match = desc.match( /\b(?:Inv|Invoice)\b[\s.]*?(?:No\.?\s*)?[-:#]?\s*(\d+)\b/i);
+  return match ? match[1] : null;
+}
+
 function parseAmount(str) {
   return parseFloat(String(str || '0').replace(/,/g, '')) || 0;
 }
- 
+
 function parseDate(str) {
   // expects DD/MM/YYYY - adjust if your bank export differs
   if (!str) return null;
@@ -172,81 +209,82 @@ function parseDate(str) {
   const [d, m, y] = parts;
   return new Date(`${y}-${m}-${d}`);
 }
- 
+
 // ── MAIN: CSV text process kore staging-e insert kora row-er array banay ──
 export async function processCsvToStaging(csvText, userId) {
   const rows = parseCSV(csvText);
+
   let dataRows = rows;
-  if (rows[0] && rows[0].some((c) => /date|amount|description|balance/i.test(c))) {
+  if (rows[0] && rows[0].some((c) => /date|amount|debit|credit|description|balance|narration/i.test(c))) {
     dataRows = rows.slice(1);
   }
- 
+
   const projects = await loadProjectAddresses();
-  const batchId = Date.now(); // simple unique batch id; replace with sequence if you have one
- 
+  const contractors = await loadContractors();
+  const batchId = Date.now();
+
   const processed = [];
   for (const row of dataRows) {
-    if (row.length < 4) continue;
-    const [dateStr, amountStr, desc, balanceStr] = row;
-    const matched = matchProject(desc, projects);
-    const category = matched ? 'address' : categorize(desc);
- 
+    // ── 3 বা 4 column দুটোই support করো ──
+    if (row.length < 3) continue;
+
+    const dateStr    = row[0];
+    const amountStr  = row[1];
+    const desc       = row[2];
+    const balanceStr = row[3] || null; // Balance না থাকলে null
+
+    const matchedProject    = matchProject(desc, projects);
+    const matchedContractor = matchContractor(desc, contractors);
+    const category          = matchedProject ? 'address' : categorize(desc);
+    const invoiceNo         = extractInvoiceNo(desc);
+
     processed.push({
-      uploadBatchId: batchId,
-      pId: matched ? matched.pId : null,
-      txnDate: parseDate(dateStr),
-      amount: parseAmount(amountStr),
-      description: desc || '',
-      balance: parseAmount(balanceStr),
+      uploadBatchId:   batchId,
+      pId:             matchedProject ? matchedProject.pId : null,
+      projectName:     matchedProject ? matchedProject.pName : null,
+      txnDate:         parseDate(dateStr),
+      amount:          parseAmount(amountStr),
+      description:     desc || '',
+      balance:         balanceStr !== null ? parseAmount(balanceStr) : null,
       category,
-      matchedAddress: matched ? matched.fullAddress : null,
+      matchedAddress:  matchedProject ? matchedProject.fullAddress : null,
+      contractorId:    matchedContractor ? matchedContractor.contractorId : null,
+      contractorName:  matchedContractor ? matchedContractor.contractorName : null,
+      invoiceNo:       invoiceNo || null,
       userId
     });
   }
- 
-  // ── duplicate check: same TXN_DATE + AMOUNT + DESCRIPTION already exists
-  //    in staging (any batch) OR main → skip re-inserting it.
-  const existing = await poolExecute(
-    `SELECT TXN_DATE, AMOUNT, DESCRIPTION FROM PM.PM_STATEMENT_STAGING
-     UNION
-     SELECT TXN_DATE, AMOUNT, DESCRIPTION FROM PM.PM_STATEMENT_MAIN`,
-    {},
-    { outFormat: oracledb.OUT_FORMAT_OBJECT }
-  );
- 
-  const existingKeys = new Set(
-    (existing.rows || []).map((r) =>
-      `${r.TXN_DATE ? new Date(r.TXN_DATE).toDateString() : ''}|${Number(r.AMOUNT)}|${(r.DESCRIPTION || '').trim()}`
-    )
-  );
- 
-  const newRows = [];
+
+  const batchKeys = new Set();
+  const newRows   = [];
   let skippedCount = 0;
+
   for (const r of processed) {
-    const key = `${r.txnDate ? r.txnDate.toDateString() : ''}|${Number(r.amount)}|${r.description.trim()}`;
-    if (existingKeys.has(key)) {
+    const key = `${toDateKey(r.txnDate)}|${Number(r.amount)}|${r.description.trim()}`;
+    if (batchKeys.has(key)) {
       skippedCount++;
       continue;
     }
-    existingKeys.add(key); // also guard against duplicates within the same CSV
+    batchKeys.add(key);
     newRows.push(r);
   }
- 
-  // Bulk insert only the new (non-duplicate) rows into staging
+
   for (const r of newRows) {
     await poolExecute(
       `INSERT INTO PM.PM_STATEMENT_STAGING
-        (UPLOAD_BATCH_ID, P_ID, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS, STATUS, USER_ID)
+        (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+         CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO, STATUS, USER_ID)
        VALUES
-        (:uploadBatchId, :pId, :txnDate, :amount, :description, :balance, :category, :matchedAddress, 'PENDING', :userId)`,
+        (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+         :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo, 'PENDING', :userId)`,
       r,
       { autoCommit: true }
     );
   }
- 
+
   return { batchId, count: newRows.length, skipped: skippedCount };
 }
- 
+
 // ── Sob ekta latest pending batch ber kora (refresh er por dekhanor jonno) ──
 export async function getLatestPendingBatch() {
   const result = await poolExecute(
@@ -261,14 +299,15 @@ export async function getLatestPendingBatch() {
   const row = result.rows?.[0];
   return row ? row.UPLOAD_BATCH_ID : null;
 }
- 
+
 // ── Staging theke list dekha (review korar jonno) ──
 export async function getStagingByBatch(batchId) {
   const result = await poolExecute(
-    `SELECT s.STAGING_ID, s.UPLOAD_BATCH_ID, s.P_ID, p.P_NAME, s.TXN_DATE,
-            s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS, s.STATUS
+    `SELECT s.STAGING_ID, s.UPLOAD_BATCH_ID, s.P_ID, s.PROJECT_NAME, s.TXN_DATE,
+            s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
+            s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
+            s.INVOICE_FILE_NAME, s.INVOICE_FILE_TYPE, s.INVOICE_FILE_SIZE, s.STATUS
      FROM PM.PM_STATEMENT_STAGING s
-     LEFT JOIN PM.PM_PROJECT p ON p.P_ID = s.P_ID
      WHERE s.UPLOAD_BATCH_ID = :batchId
      ORDER BY s.TXN_DATE DESC`,
     { batchId },
@@ -276,36 +315,141 @@ export async function getStagingByBatch(batchId) {
   );
   return result.rows || [];
 }
- 
+
+// ── Dropdown-er jonno: shob project list (manual select korar jonno) ──
+export async function getAllProjects() {
+  const result = await poolExecute(
+    `SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY P_NAME`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  return result.rows || [];
+}
+
+// ── Dropdown-er jonno: shob active contractor list (manual select korar jonno) ──
+export async function getAllContractors() {
+  const result = await poolExecute(
+    `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO
+     WHERE STATUS = 1 ORDER BY CONTRATOR_NAME`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  return result.rows || [];
+}
+
+// ── Ekta staging row-e manually project/contractor/invoice set kora (dropdown / text input theke) ──
+export async function updateStagingRow(stagingId, updates) {
+  const fields = [];
+  const binds = { stagingId };
+
+  if (updates.pId !== undefined) {
+    fields.push('P_ID = :pId', 'PROJECT_NAME = :projectName');
+    binds.pId = updates.pId || null;
+    binds.projectName = updates.projectName || null;
+  }
+  if (updates.contractorId !== undefined) {
+    fields.push('CONTRACTOR_ID = :contractorId', 'CONTRACTOR_NAME = :contractorName');
+    binds.contractorId = updates.contractorId || null;
+    binds.contractorName = updates.contractorName || null;
+  }
+  if (updates.invoiceNo !== undefined) {
+    fields.push('INVOICE_NO = :invoiceNo');
+    binds.invoiceNo = updates.invoiceNo || null;
+  }
+
+  if (fields.length === 0) return { updated: false };
+
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_STAGING SET ${fields.join(', ')} WHERE STAGING_ID = :stagingId`,
+    binds,
+    { autoCommit: true }
+  );
+  return { updated: true };
+}
+
+// ── Invoice file upload (BLOB) - staging row-e attach kora ──
+export async function uploadInvoiceFile(stagingId, file) {
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_STAGING
+     SET INVOICE_FILE = :fileData,
+         INVOICE_FILE_NAME = :fileName,
+         INVOICE_FILE_TYPE = :fileType,
+         INVOICE_FILE_SIZE = :fileSize
+     WHERE STAGING_ID = :stagingId`,
+    {
+      stagingId,
+      fileData: { val: file.buffer, type: oracledb.BLOB },
+      fileName: file.originalname,
+      fileType: file.mimetype,
+      fileSize: file.size
+    },
+    { autoCommit: true }
+  );
+  return { uploaded: true };
+}
+
+// ── Invoice file download/view ──
+export async function getInvoiceFile(stagingId) {
+  const result = await poolExecute(
+    `SELECT INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE
+     FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :stagingId`,
+    { stagingId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const row = result.rows?.[0];
+  if (!row || !row.INVOICE_FILE) return null;
+
+  // BLOB lob -> buffer
+  const lob = row.INVOICE_FILE;
+  const chunks = [];
+  await new Promise((resolve, reject) => {
+    lob.on('data', (chunk) => chunks.push(chunk));
+    lob.on('end', resolve);
+    lob.on('error', reject);
+  });
+
+  return {
+    buffer: Buffer.concat(chunks),
+    fileName: row.INVOICE_FILE_NAME,
+    fileType: row.INVOICE_FILE_TYPE
+  };
+}
+
 // ── "Approve & Move to Main" : selected staging_id gula main table-e move kore ──
 export async function approveAndMoveToMain(stagingIds, approvedBy) {
   if (!Array.isArray(stagingIds) || stagingIds.length === 0) {
     throw new Error('No rows selected to approve.');
   }
- 
+
   const placeholders = stagingIds.map((_, i) => `:id${i}`).join(',');
   const binds = {};
   stagingIds.forEach((id, i) => {
     binds[`id${i}`] = id;
   });
- 
+
   // Insert into main, then delete from staging (one connection, single transaction)
   const conn = await getConnection();
   try {
     await conn.execute(
       `INSERT INTO PM.PM_STATEMENT_MAIN
-        (UPLOAD_BATCH_ID, P_ID, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS, APPROVED_BY, USER_ID)
-       SELECT UPLOAD_BATCH_ID, P_ID, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS, :approvedBy, USER_ID
+        (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+         CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+         INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+         APPROVED_BY, USER_ID)
+       SELECT UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+              CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+              INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+              :approvedBy, USER_ID
        FROM PM.PM_STATEMENT_STAGING
        WHERE STAGING_ID IN (${placeholders})`,
       { approvedBy, ...binds }
     );
- 
+
     await conn.execute(
       `DELETE FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID IN (${placeholders})`,
       binds
     );
- 
+
     await conn.commit();
     return { moved: stagingIds.length };
   } catch (err) {
@@ -315,16 +459,18 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
     await conn.close();
   }
 }
- 
+
 // ── Main table theke list dekha (project-wise total etc) ──
 export async function getMainTransactions(filters = {}) {
-  let sql = `SELECT m.TXN_ID, m.UPLOAD_BATCH_ID, m.P_ID, p.P_NAME, m.TXN_DATE,
-                    m.AMOUNT, m.DESCRIPTION, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS, m.APPROVED_DATE
+  let sql = `SELECT m.TXN_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE,
+                    m.AMOUNT, m.DESCRIPTION, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
+                    m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
+                    m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
+                    m.APPROVED_DATE
              FROM PM.PM_STATEMENT_MAIN m
-             LEFT JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
              WHERE 1=1`;
   const binds = {};
- 
+
   if (filters.pId) {
     sql += ' AND m.P_ID = :pId';
     binds.pId = filters.pId;
@@ -333,9 +479,73 @@ export async function getMainTransactions(filters = {}) {
     sql += ' AND m.CATEGORY = :category';
     binds.category = filters.category;
   }
- 
+
   sql += ' ORDER BY m.TXN_DATE DESC';
- 
+
   const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
   return result.rows || [];
+}
+
+function toDateKey(val) {
+  if (!val) return '';
+  const d = val instanceof Date ? val : new Date(val);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+
+
+// ── Staging-এর সব PENDING row-এ invoice no আবার extract করো (regex update হলে call করো) ──
+// export async function reExtractInvoiceNos(batchId) {
+//   const result = await poolExecute(
+//     `SELECT STAGING_ID, DESCRIPTION 
+//      FROM PM.PM_STATEMENT_STAGING 
+//      WHERE STATUS = 'PENDING'
+//      ${batchId ? 'AND UPLOAD_BATCH_ID = :batchId' : ''}`,
+//     batchId ? { batchId } : {},
+//     { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+
+//   const rows = result.rows || [];
+//   let updatedCount = 0;
+
+//   for (const row of rows) {
+//     const newInvoiceNo = extractInvoiceNo(row.DESCRIPTION);
+//     await poolExecute(
+//       `UPDATE PM.PM_STATEMENT_STAGING 
+//        SET INVOICE_NO = :invoiceNo 
+//        WHERE STAGING_ID = :stagingId`,
+//       { invoiceNo: newInvoiceNo || null, stagingId: row.STAGING_ID },
+//       { autoCommit: true }
+//     );
+//     updatedCount++;
+//   }
+
+//   return { updated: updatedCount };
+// }
+
+
+export async function getMainInvoiceFile(txnId) {
+  const result = await poolExecute(
+    `SELECT INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE
+     FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+    { txnId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const row = result.rows?.[0];
+  if (!row || !row.INVOICE_FILE) return null;
+
+  const lob = row.INVOICE_FILE;
+  const chunks = [];
+  await new Promise((resolve, reject) => {
+    lob.on('data', (chunk) => chunks.push(chunk));
+    lob.on('end', resolve);
+    lob.on('error', reject);
+  });
+
+  return {
+    buffer: Buffer.concat(chunks),
+    fileName: row.INVOICE_FILE_NAME,
+    fileType: row.INVOICE_FILE_TYPE
+  };
 }
