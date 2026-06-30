@@ -26,6 +26,9 @@ function initThickMode() {
 export async function initDb() {
   initThickMode();
 
+  oracledb.fetchAsString = [oracledb.CLOB];
+  oracledb.fetchAsBuffer = [oracledb.BLOB];
+
   const connectString =  process.env.DB_CONNECT_STRING;
   if (!process.env.DB_USER || !connectString) {
     throw new Error(
