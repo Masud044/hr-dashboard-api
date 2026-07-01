@@ -11,26 +11,25 @@ import {
 //  POST /api/contractors
 //  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+//  POST /api/contractors
+//  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
+// ─────────────────────────────────────────────
 export async function createContractor(req, res) {
   try {
     const { contractor, contractorTypes } = req.body;
 
-    // Basic validation
-    if (!contractor?.CONTRATOR_NAME) {
+    // Basic validation — শুধু নাম required
+    if (!contractor?.CONTRATOR_NAME?.trim()) {
       return res.status(400).json({
         success: false,
         message: "CONTRATOR_NAME is required.",
       });
     }
 
-    if (!Array.isArray(contractorTypes) || contractorTypes.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one contractorType is required.",
-      });
-    }
+    const types = Array.isArray(contractorTypes) ? contractorTypes : [];
 
-    const result = await createContractorWithTypes({ contractor, contractorTypes });
+    const result = await createContractorWithTypes({ contractor, contractorTypes: types });
 
     return res.status(201).json({
       success: true,
@@ -92,6 +91,10 @@ export async function getContractorById(req, res) {
 //  PUT /api/contractors/:id
 //  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+//  PUT /api/contractors/:id
+//  Body: { contractor: {...}, contractorTypes: [1, 2, 3] }
+// ─────────────────────────────────────────────
 export async function updateContractor(req, res) {
   try {
     const id = Number(req.params.id);
@@ -101,18 +104,13 @@ export async function updateContractor(req, res) {
 
     const { contractor, contractorTypes } = req.body;
 
-    if (!contractor) {
-      return res.status(400).json({ success: false, message: "Contractor data is required." });
+    if (!contractor?.CONTRATOR_NAME?.trim()) {
+      return res.status(400).json({ success: false, message: "CONTRATOR_NAME is required." });
     }
 
-    if (!Array.isArray(contractorTypes) || contractorTypes.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one contractorType is required.",
-      });
-    }
+    const types = Array.isArray(contractorTypes) ? contractorTypes : [];
 
-    const result = await updateContractorWithTypes(id, { contractor, contractorTypes });
+    const result = await updateContractorWithTypes(id, { contractor, contractorTypes: types });
 
     return res.status(200).json({
       success: true,
