@@ -105,21 +105,37 @@ function categorize(desc) {
 //   }));
 // }
 
+// async function loadProjectAddresses() {
+//   const result = await poolExecute(
+//     `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_NAME IS NOT NULL`,
+//     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return (result.rows || []).map((r) => ({
+//     pId: r.P_ID,
+//     pName: r.P_NAME,
+//     // ── শুধু P_NAME থেকে keyword বের করা হলো (P_ADDRESS/SUBWRB আর ব্যবহার হচ্ছে না matching-এ) ──
+//     keywords: extractKeywords(r.P_NAME),
+//     // ── display/CSV এর জন্য full address তথ্য রাখা হলো, matching-এ প্রভাব ফেলে না ──
+//     fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ') || r.P_NAME
+//   })).filter((p) => p.keywords.length > 0);
+// }
 async function loadProjectAddresses() {
   const result = await poolExecute(
     `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_NAME IS NOT NULL`,
     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
-  return (result.rows || []).map((r) => ({
-    pId: r.P_ID,
-    pName: r.P_NAME,
-    // ── শুধু P_NAME থেকে keyword বের করা হলো (P_ADDRESS/SUBWRB আর ব্যবহার হচ্ছে না matching-এ) ──
-    keywords: extractKeywords(r.P_NAME),
-    // ── display/CSV এর জন্য full address তথ্য রাখা হলো, matching-এ প্রভাব ফেলে না ──
-    fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ') || r.P_NAME
-  })).filter((p) => p.keywords.length > 0);
+  return (result.rows || []).map((r) => {
+    const keywords = extractKeywords(r.P_NAME);
+    return {
+      pId: r.P_ID,
+      pName: r.P_NAME,
+      keywords,
+      // ── regex একবারই বানানো হলো, প্রতি row-এ rebuild করা হবে না (perf fix) ──
+      regexes: keywords.map((kw) => new RegExp(`\\b${escapeRegex(kw)}\\b`)),
+      fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ') || r.P_NAME
+    };
+  }).filter((p) => p.keywords.length > 0);
 }
-
 // function matchProject(desc, projects) {
 //   if (!desc) return null;
 //   const lower = normalize(desc);
@@ -128,6 +144,22 @@ async function loadProjectAddresses() {
 //   }
 //   return null;
 // }
+// function matchProject(desc, projects) {
+//   if (!desc) return null;
+//   const descNorm = normalize(desc);
+//   let best = null, bestScore = 0;
+
+//   for (const p of projects) {
+//     let score = 0;
+//     for (const kw of p.keywords) {
+//       const re = new RegExp(`\\b${escapeRegex(kw)}\\b`);
+//       if (re.test(descNorm)) score += kw.length;
+//     }
+//     if (score > bestScore) { bestScore = score; best = p; }
+//   }
+
+//   return bestScore >= 4 ? best : null;
+// }
 function matchProject(desc, projects) {
   if (!desc) return null;
   const descNorm = normalize(desc);
@@ -135,9 +167,8 @@ function matchProject(desc, projects) {
 
   for (const p of projects) {
     let score = 0;
-    for (const kw of p.keywords) {
-      const re = new RegExp(`\\b${escapeRegex(kw)}\\b`);
-      if (re.test(descNorm)) score += kw.length;
+    for (let i = 0; i < p.regexes.length; i++) {
+      if (p.regexes[i].test(descNorm)) score += p.keywords[i].length;
     }
     if (score > bestScore) { bestScore = score; best = p; }
   }
@@ -155,18 +186,37 @@ function matchProject(desc, projects) {
 //     .filter((c) => c.nameKey && c.nameKey.length >= 4);
 // }
 
+// async function loadContractors() {
+//   const result = await poolExecute(
+//     `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 AND CONTRATOR_NAME IS NOT NULL`,
+//     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return (result.rows || [])
+//     .map((r) => ({
+//       contractorId: r.CONTRATOR_ID,
+//       contractorName: r.CONTRATOR_NAME,
+//       // ── "Pty Ltd", "Construction" ইত্যাদি বাদ দিয়ে আসল নাম keyword হিসেবে রাখা হলো ──
+//       keywords: extractKeywords(r.CONTRATOR_NAME),
+//     }))
+//     .filter((c) => c.keywords.length > 0);
+// }
+
 async function loadContractors() {
   const result = await poolExecute(
     `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 AND CONTRATOR_NAME IS NOT NULL`,
     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   return (result.rows || [])
-    .map((r) => ({
-      contractorId: r.CONTRATOR_ID,
-      contractorName: r.CONTRATOR_NAME,
-      // ── "Pty Ltd", "Construction" ইত্যাদি বাদ দিয়ে আসল নাম keyword হিসেবে রাখা হলো ──
-      keywords: extractKeywords(r.CONTRATOR_NAME),
-    }))
+    .map((r) => {
+      const keywords = extractKeywords(r.CONTRATOR_NAME);
+      return {
+        contractorId: r.CONTRATOR_ID,
+        contractorName: r.CONTRATOR_NAME,
+        keywords,
+        // ── regex একবারই বানানো হলো, প্রতি row-এ rebuild করা হবে না (perf fix) ──
+        regexes: keywords.map((kw) => new RegExp(`\\b${escapeRegex(kw)}\\b`)),
+      };
+    })
     .filter((c) => c.keywords.length > 0);
 }
 
@@ -178,6 +228,7 @@ async function loadContractors() {
 // }
 
 // ── keyword-based scoring match, matchProject এর মতোই লজিক ──
+// ── keyword-based scoring match, matchProject এর মতোই লজিক ──
 function matchContractor(desc, contractors) {
   if (!desc) return null;
   const descNorm = normalize(desc);
@@ -185,16 +236,14 @@ function matchContractor(desc, contractors) {
 
   for (const c of contractors) {
     let score = 0;
-    for (const kw of c.keywords) {
-      const re = new RegExp(`\\b${escapeRegex(kw)}\\b`);
-      if (re.test(descNorm)) score += kw.length;
+    for (let i = 0; i < c.regexes.length; i++) {
+      if (c.regexes[i].test(descNorm)) score += c.keywords[i].length;
     }
     if (score > bestScore) { bestScore = score; best = c; }
   }
 
   return bestScore >= 4 ? best : null;
 }
-
 function extractInvoiceNo(desc) {
   if (!desc) return null;
   const match = desc.match(/\b(?:Inv|Invoice)\b[\s.]*?(?:No\.?\s*)?[-:#]?\s*(\d+)\b/i);
@@ -297,22 +346,62 @@ export async function processCsvToStaging(csvText, userId) {
     });
   }
 
-  for (const r of processed) {
-    await poolExecute(
-      `INSERT INTO PM.PM_STATEMENT_STAGING
+ await bulkInsertStaging(processed);
+
+  return { batchId, count: processed.length, skipped: 0 };
+}
+
+// ── নতুন হেল্পার: 3000+ row হলেও executeMany দিয়ে chunk-wise bulk insert, ──
+// ── আগের মতো প্রতি row-এ আলাদা round-trip/commit করবে না (perf fix) ──
+async function bulkInsertStaging(processed) {
+  if (processed.length === 0) return;
+
+  const conn = await getConnection();
+  try {
+    const sql = `INSERT INTO PM.PM_STATEMENT_STAGING
         (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
          CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
          SOURCE_TYPE, REMARKS, STATUS, USER_ID)
        VALUES
         (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
          :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
-         :sourceType, :remarks, 'PENDING', :userId)`,
-      r, { autoCommit: true }
-    );
-  }
+         :sourceType, :remarks, 'PENDING', :userId)`;
 
-  return { batchId, count: processed.length, skipped: 0 };
+    const options = {
+      autoCommit: true,
+      batchErrors: true,
+      bindDefs: {
+        uploadBatchId:  { type: oracledb.NUMBER },
+        pId:            { type: oracledb.NUMBER },
+        projectName:    { type: oracledb.STRING, maxSize: 500 },
+        txnDate:        { type: oracledb.DATE },
+        amount:         { type: oracledb.NUMBER },
+        description:    { type: oracledb.STRING, maxSize: 4000 },
+        balance:        { type: oracledb.NUMBER },
+        category:       { type: oracledb.STRING, maxSize: 50 },
+        matchedAddress: { type: oracledb.STRING, maxSize: 500 },
+        contractorId:   { type: oracledb.NUMBER },
+        contractorName: { type: oracledb.STRING, maxSize: 500 },
+        invoiceNo:      { type: oracledb.STRING, maxSize: 100 },
+        sourceType:     { type: oracledb.STRING, maxSize: 20 },
+        remarks:        { type: oracledb.STRING, maxSize: 500 },
+        userId:         { type: oracledb.NUMBER }
+      }
+    };
+
+    const CHUNK = 500;
+    for (let i = 0; i < processed.length; i += CHUNK) {
+      const batch = processed.slice(i, i + CHUNK);
+      const result = await conn.executeMany(sql, batch, options);
+      if (result.batchErrors?.length) {
+        console.error('Staging bulk insert batchErrors:', result.batchErrors);
+      }
+    }
+  } finally {
+    await conn.close();
+  }
 }
+
 
 export async function getLatestPendingBatch() {
   const result = await poolExecute(
