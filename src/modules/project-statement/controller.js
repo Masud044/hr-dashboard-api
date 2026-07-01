@@ -32,16 +32,18 @@ export async function statementHandler(req, res) {
 
     case 'getStagingAll': {
       const filters = {
-        sourceType:   req.query.sourceType   || null,
-        status:       req.query.status       || null,
-        dateFrom:     req.query.dateFrom     || null,
-        dateTo:       req.query.dateTo       || null,
-        pId:          req.query.pId          || null,
-        contractorId: req.query.contractorId || null,
-        invoiceNo:    req.query.invoiceNo    || null,
-        amount:       req.query.amount       || null,
-        description:  req.query.description  || null,
-        category:     req.query.category     || null,
+        sourceType:     req.query.sourceType     || null,
+        status:         req.query.status         || null,
+        dateFrom:       req.query.dateFrom       || null,
+        dateTo:         req.query.dateTo         || null,
+        pId:            req.query.pId            || null,
+        contractorId:   req.query.contractorId   || null,
+        invoiceNo:      req.query.invoiceNo      || null,
+        amountMin:      req.query.amountMin      || null,
+        amountMax:      req.query.amountMax      || null,
+        description:    req.query.description    || null,
+        category:       req.query.category       || null,
+        matchedAddress: req.query.matchedAddress || null,
       };
       const rows = await getStagingFiltered(filters);
       return res.status(200).json({ success: true, data: rows });
@@ -125,22 +127,23 @@ export async function statementHandler(req, res) {
   return res.status(200).json({ success: true, data: rows });
 }
 
-    case 'getMain': {
+   case 'getMain': {
       const filters = {
-        pId:          req.query.pId          || null,
-        category:     req.query.category     || null,
-        sourceType:   req.query.sourceType   || null,
-        dateFrom:     req.query.dateFrom     || null,
-        dateTo:       req.query.dateTo       || null,
-        contractorId: req.query.contractorId || null,
-        invoiceNo:    req.query.invoiceNo    || null,
-        amount:       req.query.amount       || null,
-        description:  req.query.description  || null,
+        pId:            req.query.pId            || null,
+        category:       req.query.category       || null,
+        sourceType:     req.query.sourceType     || null,
+        dateFrom:       req.query.dateFrom       || null,
+        dateTo:         req.query.dateTo         || null,
+        contractorId:   req.query.contractorId   || null,
+        invoiceNo:      req.query.invoiceNo      || null,
+        amountMin:      req.query.amountMin      || null,
+        amountMax:      req.query.amountMax      || null,
+        description:    req.query.description    || null,
+        matchedAddress: req.query.matchedAddress || null,
       };
       const rows = await getMainTransactions(filters);
       return res.status(200).json({ success: true, data: rows });
     }
-
     default:
       return res.status(400).json({ success: false, message: `Unknown action: ${action}` });
   }

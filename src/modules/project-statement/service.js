@@ -35,6 +35,27 @@ function normalize(s) {
   return v;
 }
 
+
+const STOP_WORDS = new Set([
+  'rd', 'st', 'ave', 'pl', 'dr', 'ct', 'cres', 'hwy', 'pde', 'blvd', 'ln', 'tce', 'cl', 'way',
+  'street', 'road', 'avenue', 'place', 'drive', 'court', 'crescent', 'highway', 'parade',
+  'boulevard', 'lane', 'terrace', 'close',
+  'nsw', 'vic', 'qld', 'sa', 'wa', 'act', 'nt', 'tas',
+  'pty', 'ltd', 'llc', 'inc', 'corp', 'co', 'the', 'and', 'group',
+  'construction', 'constructions', 'services', 'service', 'company',
+]);
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractKeywords(...strings) {
+  const combined = strings.filter(Boolean).join(' ');
+  const norm = normalize(combined);
+  const words = norm.split(/[^a-z0-9]+/).filter(Boolean);
+  return [...new Set(words.filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w)))];
+}
+
 function parseCSV(text) {
   const lines = [];
   let current = '', inQuotes = false, row = [], i = 0;
@@ -72,26 +93,67 @@ function categorize(desc) {
   return 'other';
 }
 
+// async function loadProjectAddresses() {
+//   const result = await poolExecute(
+//     `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_ADDRESS IS NOT NULL`,
+//     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return (result.rows || []).map((r) => ({
+//     pId: r.P_ID, pName: r.P_NAME,
+//     addressKey: normalize(r.P_ADDRESS),
+//     fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ')
+//   }));
+// }
+
 async function loadProjectAddresses() {
   const result = await poolExecute(
-    `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_ADDRESS IS NOT NULL`,
+    `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_NAME IS NOT NULL`,
     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   return (result.rows || []).map((r) => ({
-    pId: r.P_ID, pName: r.P_NAME,
-    addressKey: normalize(r.P_ADDRESS),
-    fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ')
-  }));
+    pId: r.P_ID,
+    pName: r.P_NAME,
+    // ── শুধু P_NAME থেকে keyword বের করা হলো (P_ADDRESS/SUBWRB আর ব্যবহার হচ্ছে না matching-এ) ──
+    keywords: extractKeywords(r.P_NAME),
+    // ── display/CSV এর জন্য full address তথ্য রাখা হলো, matching-এ প্রভাব ফেলে না ──
+    fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ') || r.P_NAME
+  })).filter((p) => p.keywords.length > 0);
 }
 
+// function matchProject(desc, projects) {
+//   if (!desc) return null;
+//   const lower = normalize(desc);
+//   for (const p of projects) {
+//     if (p.addressKey && p.addressKey.length >= 6 && lower.includes(p.addressKey)) return p;
+//   }
+//   return null;
+// }
 function matchProject(desc, projects) {
   if (!desc) return null;
-  const lower = normalize(desc);
+  const descNorm = normalize(desc);
+  let best = null, bestScore = 0;
+
   for (const p of projects) {
-    if (p.addressKey && p.addressKey.length >= 6 && lower.includes(p.addressKey)) return p;
+    let score = 0;
+    for (const kw of p.keywords) {
+      const re = new RegExp(`\\b${escapeRegex(kw)}\\b`);
+      if (re.test(descNorm)) score += kw.length;
+    }
+    if (score > bestScore) { bestScore = score; best = p; }
   }
-  return null;
+
+  return bestScore >= 4 ? best : null;
 }
+
+// async function loadContractors() {
+//   const result = await poolExecute(
+//     `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 AND CONTRATOR_NAME IS NOT NULL`,
+//     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return (result.rows || [])
+//     .map((r) => ({ contractorId: r.CONTRATOR_ID, contractorName: r.CONTRATOR_NAME, nameKey: normalize(r.CONTRATOR_NAME) }))
+//     .filter((c) => c.nameKey && c.nameKey.length >= 4);
+// }
 
 async function loadContractors() {
   const result = await poolExecute(
@@ -99,15 +161,38 @@ async function loadContractors() {
     {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   return (result.rows || [])
-    .map((r) => ({ contractorId: r.CONTRATOR_ID, contractorName: r.CONTRATOR_NAME, nameKey: normalize(r.CONTRATOR_NAME) }))
-    .filter((c) => c.nameKey && c.nameKey.length >= 4);
+    .map((r) => ({
+      contractorId: r.CONTRATOR_ID,
+      contractorName: r.CONTRATOR_NAME,
+      // ── "Pty Ltd", "Construction" ইত্যাদি বাদ দিয়ে আসল নাম keyword হিসেবে রাখা হলো ──
+      keywords: extractKeywords(r.CONTRATOR_NAME),
+    }))
+    .filter((c) => c.keywords.length > 0);
 }
 
+// function matchContractor(desc, contractors) {
+//   if (!desc) return null;
+//   const lower = normalize(desc);
+//   for (const c of contractors) { if (lower.includes(c.nameKey)) return c; }
+//   return null;
+// }
+
+// ── keyword-based scoring match, matchProject এর মতোই লজিক ──
 function matchContractor(desc, contractors) {
   if (!desc) return null;
-  const lower = normalize(desc);
-  for (const c of contractors) { if (lower.includes(c.nameKey)) return c; }
-  return null;
+  const descNorm = normalize(desc);
+  let best = null, bestScore = 0;
+
+  for (const c of contractors) {
+    let score = 0;
+    for (const kw of c.keywords) {
+      const re = new RegExp(`\\b${escapeRegex(kw)}\\b`);
+      if (re.test(descNorm)) score += kw.length;
+    }
+    if (score > bestScore) { bestScore = score; best = c; }
+  }
+
+  return bestScore >= 4 ? best : null;
 }
 
 function extractInvoiceNo(desc) {
@@ -255,6 +340,7 @@ export async function getStagingByBatch(batchId) {
 }
 
 // ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
+// ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
 export async function getStagingFiltered(filters = {}) {
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
@@ -270,15 +356,18 @@ export async function getStagingFiltered(filters = {}) {
   if (filters.pId)        { sql += ' AND P_ID = :pId'; binds.pId = filters.pId; }
   if (filters.contractorId) { sql += ' AND CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
   if (filters.invoiceNo)  { sql += ' AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  if (filters.amount)     { sql += ' AND AMOUNT = :amount'; binds.amount = filters.amount; }
+  // ── amount exact match এর বদলে range ──
+  if (filters.amountMin)  { sql += ' AND AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+  if (filters.amountMax)  { sql += ' AND AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
   if (filters.description){ sql += ' AND UPPER(DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
   if (filters.category)   { sql += ' AND CATEGORY = :category'; binds.category = filters.category; }
+  // ── নতুন: matched address filter ──
+  if (filters.matchedAddress) { sql += ' AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
 
   sql += ' ORDER BY TXN_DATE DESC';
   const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
   return result.rows || [];
 }
-
 export async function getAllProjects() {
   const result = await poolExecute(`SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY P_NAME`, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
   return result.rows || [];
@@ -514,14 +603,17 @@ export async function getMainTransactions(filters = {}) {
   if (filters.dateTo)      { sql += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
   if (filters.contractorId){ sql += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
   if (filters.invoiceNo)   { sql += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  if (filters.amount)      { sql += ' AND m.AMOUNT = :amount'; binds.amount = filters.amount; }
+  // ── amount exact match এর বদলে range ──
+  if (filters.amountMin)   { sql += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+  if (filters.amountMax)   { sql += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
   if (filters.description) { sql += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
+  // ── নতুন: matched address filter ──
+  if (filters.matchedAddress) { sql += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
 
   sql += ' ORDER BY m.TXN_DATE DESC';
   const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
   return result.rows || [];
 }
-
 export async function getMainInvoiceFile(txnId) {
   const conn = await getConnection();
   try {
