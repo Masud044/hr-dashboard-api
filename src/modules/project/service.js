@@ -10,38 +10,40 @@ export async function insertProject(data, files = []) {
   const connection = await getConnection();
   try {
     // 1️⃣ Insert project → get P_ID
-    const result = await connection.execute(
-      `INSERT INTO PM.PM_PROJECT
-       (P_NAME, P_TYPE, P_ADDRESS, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
-        LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
-        DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS)
-       VALUES
-       (:P_NAME, :P_TYPE, :P_ADDRESS, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
-        :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
-        :DESCRIPTION, :FILE_PATH, 'PENDING')
-       RETURNING P_ID INTO :NEW_P_ID`,
-      {
-        P_NAME:                data.P_NAME ?? "",
-        P_TYPE:                data.P_TYPE ?? "",
-        P_ADDRESS:             data.P_ADDRESS ?? "",
-        SUBWRB:                data.SUBWRB ?? "",
-        POSTCODE:              data.POSTCODE ?? "",
-        STATE:                 data.STATE ?? "",
-        USER_ID:               Number(data.USER_ID ?? 0),
-        USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
-        UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
-        LOT:                   data.LOT ?? null,
-        DP:                    data.DP ?? null,
-        INSURANCE_NO:          data.INSURANCE_NO ?? null,
-        P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
-        P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
-        P_CODE:                data.P_CODE ?? null,
-        DESCRIPTION:           data.DESCRIPTION ?? null,
-        FILE_PATH:             null,
-        NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-      },
-      { autoCommit: false }
-    );
+   const result = await connection.execute(
+  `INSERT INTO PM.PM_PROJECT
+   (P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
+    LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
+    DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS)
+   VALUES
+   (:P_NAME, :P_TYPE, :P_ADDRESS, :ADDRESS, :STREET, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
+    :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
+    :DESCRIPTION, :FILE_PATH, 'PENDING')
+   RETURNING P_ID INTO :NEW_P_ID`,
+  {
+    P_NAME:                data.P_NAME ?? "",
+    P_TYPE:                data.P_TYPE ?? null,
+    P_ADDRESS:             data.P_ADDRESS ?? null,
+    ADDRESS:               data.ADDRESS ?? null,   // ✅ নতুন
+    STREET:                data.STREET ?? null,     // ✅ নতুন
+    SUBWRB:                data.SUBWRB ?? null,
+    POSTCODE:              data.POSTCODE ?? null,
+    STATE:                 data.STATE ?? "NSW",     // ✅ default fallback
+    USER_ID:               Number(data.USER_ID ?? 0),
+    USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
+    UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
+    LOT:                   data.LOT ?? null,
+    DP:                    data.DP ?? null,
+    INSURANCE_NO:          data.INSURANCE_NO ?? null,
+    P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
+    P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
+    P_CODE:                data.P_CODE ?? null,
+    DESCRIPTION:           data.DESCRIPTION ?? null,
+    FILE_PATH:             null,
+    NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+  },
+  { autoCommit: false }
+);
 
     const P_ID = result.outBinds.NEW_P_ID[0];
 
@@ -102,16 +104,16 @@ export async function searchProject(p_id) {
   const connection = await getConnection();
   try {
     let sql = `
-      SELECT
-        P_ID, P_NAME, P_TYPE, P_ADDRESS, SUBWRB, POSTCODE, STATE, USER_ID,
-        TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
-        TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
-        USER_BY, UPDATED_BY,
-        LOT, DP, INSURANCE_NO,
-        TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
-        TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
-        P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS
-      FROM PM.PM_PROJECT`;
+  SELECT
+    P_ID, P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID,
+    TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+    TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
+    USER_BY, UPDATED_BY,
+    LOT, DP, INSURANCE_NO,
+    TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
+    TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
+    P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS
+  FROM PM.PM_PROJECT`;
 
     const binds = {};
     if (p_id > 0) {
@@ -209,7 +211,7 @@ export async function updateProject(data, files = []) {
       updated_by_bv: Number(data.UPDATED_BY),
     };
 
-    const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "SUBWRB", "POSTCODE", "STATE"];
+   const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "ADDRESS", "STREET", "SUBWRB", "POSTCODE", "STATE"];
     const numberFields    = ["USER_ID"];
     const nullableStrings = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
     const dateFields      = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
