@@ -6,6 +6,8 @@ import {
   updateContractor,
   deleteContractor,
   getContractorTypeInfo,
+  moveContractorPosition,
+  reorderContractorPosition,
 } from "./controller.js";
 
 const router = express.Router();
@@ -19,6 +21,8 @@ const router = express.Router();
 router.post("/",      createContractor);
 router.get("/",       getAllContractors);
 router.get("/contractor-type-info", getContractorTypeInfo); 
+router.patch("/:id/move",    moveContractorPosition);
+router.patch("/:id/reorder", reorderContractorPosition);
 router.get("/:id",    getContractorById);
 router.put("/:id",    updateContractor);
 router.delete("/:id", deleteContractor);
