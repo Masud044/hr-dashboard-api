@@ -101,6 +101,74 @@ export async function insertProject(data, files = []) {
 // ─────────────────────────────────────────────
 // PROJECT SEARCH
 // ─────────────────────────────────────────────
+// export async function searchProject(p_id) {
+//   const connection = await getConnection();
+//   try {
+// let sql = `
+//   SELECT
+//     P_ID, P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID,
+//     TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+//     TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
+//     USER_BY, UPDATED_BY,
+//     LOT, DP, INSURANCE_NO,
+//     TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
+//     TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
+//     P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
+//     SORT_ORDER
+//   FROM PM.PM_PROJECT`;
+
+//     const binds = {};
+//     if (p_id > 0) {
+//       sql += " WHERE P_ID = :p_id_bv";
+//       binds.p_id_bv = p_id;
+//     }
+
+//     const projResult = await connection.execute(sql, binds, {
+//       outFormat: oracledb.OUT_FORMAT_OBJECT,
+//     });
+//     const projects = projResult.rows || [];
+
+//     if (!projects.length) return projects;
+
+//     if (p_id > 0) {
+//       const proj = projects[0];
+
+//       // Contractor types
+//       const ctResult = await connection.execute(
+//         `SELECT ID, CONTRACTOR_TYPE_ID,
+//                 TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE
+//          FROM PM.PM_PROJECT_CONTRACTOR_TYPE
+//          WHERE P_ID = :pid`,
+//         { pid: p_id },
+//         { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//       );
+//       proj.CONTRACTOR_TYPES = ctResult.rows || [];
+
+//       // Docs — DOC_TYPE (BLOB) টাকে string এ convert করে return করো
+//       // BLOB content (actual file binary) download route এ আলাদা দেওয়া হবে
+//       const docResult = await connection.execute(
+//         `SELECT ID, CONTRACTOR_TYPE_ID, FILE_NAME, FILE_PATH, MIME_TYPE, FILE_SIZE,
+//                 UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 20, 1)) AS DOC_FILE_LABEL,
+//                 UPLOAD_STATUS,
+//                 TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE
+//          FROM PM.PM_PROJECT_DOC
+//          WHERE P_ID = :pid
+//          ORDER BY UPLOAD_STATUS DESC, ID`,
+//         { pid: p_id },
+//         { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//       );
+//       proj.DOCS = docResult.rows || [];
+//     }
+
+//     return projects;
+//   } finally {
+//     await connection.close();
+//   }
+// }
+
+// ─────────────────────────────────────────────
+// PROJECT SEARCH
+// ─────────────────────────────────────────────
 export async function searchProject(p_id) {
   const connection = await getConnection();
   try {
@@ -114,7 +182,7 @@ let sql = `
     TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
     TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
     P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
-    SORT_ORDER
+    SORT_ORDER, PROJECT_STATUS
   FROM PM.PM_PROJECT`;
 
     const binds = {};
@@ -165,7 +233,6 @@ let sql = `
     await connection.close();
   }
 }
-
 // ─────────────────────────────────────────────
 // FILE DOWNLOAD  (BLOB streaming)
 // ─────────────────────────────────────────────
@@ -203,6 +270,115 @@ export async function getDocBlob(doc_id) {
 // ─────────────────────────────────────────────
 // PROJECT UPDATE
 // ─────────────────────────────────────────────
+// export async function updateProject(data, files = []) {
+//   const connection = await getConnection();
+//   try {
+//     const p_id = Number(data.P_ID || 0);
+//     const set   = [];
+//     const binds = {
+//       p_id_bv:       p_id,
+//       updated_by_bv: Number(data.UPDATED_BY),
+//     };
+
+//    const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "ADDRESS", "STREET", "SUBWRB", "POSTCODE", "STATE"];
+//     const numberFields    = ["USER_ID"];
+//     const nullableStrings = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
+//     const dateFields      = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
+
+//     for (const field of stringFields) {
+//       if (Object.prototype.hasOwnProperty.call(data, field)) {
+//         const key = field.toLowerCase();
+//         set.push(`${field} = :${key}`);
+//         binds[key] = data[field];
+//       }
+//     }
+//     for (const field of numberFields) {
+//       if (Object.prototype.hasOwnProperty.call(data, field)) {
+//         const key = field.toLowerCase();
+//         set.push(`${field} = :${key}`);
+//         binds[key] = Number(data[field]);
+//       }
+//     }
+//     for (const field of nullableStrings) {
+//       if (Object.prototype.hasOwnProperty.call(data, field)) {
+//         const key = field.toLowerCase();
+//         set.push(`${field} = :${key}`);
+//         binds[key] = data[field] ?? null;
+//       }
+//     }
+//     for (const field of dateFields) {
+//       if (Object.prototype.hasOwnProperty.call(data, field)) {
+//         const key = field.toLowerCase();
+//         set.push(`${field} = :${key}`);
+//         binds[key] = data[field] ? new Date(data[field]) : null;
+//       }
+//     }
+
+//     set.push("UPDATE_DATE = SYSDATE");
+//     set.push("UPDATED_BY  = :updated_by_bv");
+
+//     if (set.length <= 2) return 0;
+
+//     const sql = `UPDATE PM.PM_PROJECT SET ${set.join(", ")} WHERE P_ID = :p_id_bv`;
+//     const upResult = await connection.execute(sql, binds, { autoCommit: false });
+
+//     // Contractor types পরিবর্তন হলে
+//     if (Object.prototype.hasOwnProperty.call(data, "CONTRACTOR_TYPE_IDS")) {
+//       const newIds = _parseIds(data.CONTRACTOR_TYPE_IDS);
+
+//       await connection.execute(
+//         `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
+//         { pid: p_id },
+//         { autoCommit: false }
+//       );
+//       // পুরনো CERTIFICATE placeholder গুলো (file নেই এমন) মুছে দাও
+//       await connection.execute(
+//         `DELETE FROM PM.PM_PROJECT_DOC
+//          WHERE P_ID = :pid AND UPLOAD_STATUS = 'PENDING'
+//            AND UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 11, 1)) = 'CERTIFICATE'`,
+//         { pid: p_id },
+//         { autoCommit: false }
+//       );
+
+//       for (const ctId of newIds) {
+//         await connection.execute(
+//           `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
+//            VALUES (:pid, :ctid)`,
+//           { pid: p_id, ctid: Number(ctId) },
+//           { autoCommit: false }
+//         );
+//         await _insertCertPlaceholder(connection, {
+//           P_ID: p_id,
+//           CONTRACTOR_TYPE_ID: Number(ctId),
+//           CREATION_BY: Number(data.UPDATED_BY),
+//         });
+//       }
+//     }
+
+//     // নতুন mandatory files
+//     for (const file of files) {
+//       await _insertMandatoryDoc(connection, {
+//         P_ID:        p_id,
+//         FILE_NAME:   file.originalname,
+//         MIME_TYPE:   file.mimetype,
+//         FILE_SIZE:   file.size,
+//         FILE_BUFFER: file.buffer,
+//         CREATION_BY: Number(data.UPDATED_BY),
+//       });
+//     }
+
+//     await connection.commit();
+//     return upResult.rowsAffected;
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
+// ─────────────────────────────────────────────
+// PROJECT UPDATE
+// ─────────────────────────────────────────────
 export async function updateProject(data, files = []) {
   const connection = await getConnection();
   try {
@@ -213,7 +389,7 @@ export async function updateProject(data, files = []) {
       updated_by_bv: Number(data.UPDATED_BY),
     };
 
-   const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "ADDRESS", "STREET", "SUBWRB", "POSTCODE", "STATE"];
+   const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "ADDRESS", "STREET", "SUBWRB", "POSTCODE", "STATE", "PROJECT_STATUS"];
     const numberFields    = ["USER_ID"];
     const nullableStrings = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
     const dateFields      = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
@@ -310,6 +486,33 @@ export async function updateProject(data, files = []) {
   }
 }
 
+
+// ─────────────────────────────────────────────
+// QUICK STATUS UPDATE (Lightweight)
+// ─────────────────────────────────────────────
+export async function updateProjectStatus(p_id, status, updated_by) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `UPDATE PM.PM_PROJECT 
+       SET PROJECT_STATUS = :status, 
+           UPDATE_DATE = SYSDATE, 
+           UPDATED_BY = :updated_by 
+       WHERE P_ID = :p_id`,
+      {
+        status:      status,
+        updated_by:  Number(updated_by || 0),
+        p_id:        Number(p_id),
+      },
+      { autoCommit: true } // Simple update, autoCommit is perfectly fine here
+    );
+    return result.rowsAffected;
+  } catch (err) {
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
 // ─────────────────────────────────────────────
 // PROJECT DELETE
 // ─────────────────────────────────────────────
