@@ -1,3 +1,4 @@
+// src\modules\project-statement\route.js
 import express from 'express';
 import multer from 'multer';
 import { statementHandler } from './controller.js';
@@ -23,6 +24,10 @@ router.post('/approve',
   asyncHandler((req, res) => { req.params.action = 'approve'; return statementHandler(req, res); })
 );
 
+// ── NEW: Disapprove Route ──
+router.post('/disapprove',
+  asyncHandler((req, res) => { req.params.action = 'disapprove'; return statementHandler(req, res); })
+);
 router.get('/main',
   asyncHandler((req, res) => { req.params.action = 'getMain'; return statementHandler(req, res); })
 );

@@ -1,3 +1,5 @@
+
+// src\modules\project-statement\service.js
 import { poolExecute, oracledb, getConnection } from '../../config/db.js';
 
 const PLACE_KEYWORDS = [
@@ -557,6 +559,79 @@ export async function getInvoiceFile(stagingId) {
 }
 
 // ── Approve: staging থেকে DELETE করে না, STATUS = 'APPROVED'; debit/credit derive করে main-এ পাঠায় ──
+// export async function approveAndMoveToMain(stagingIds, approvedBy) {
+//   if (!Array.isArray(stagingIds) || stagingIds.length === 0) {
+//     throw new Error('No rows selected to approve.');
+//   }
+
+//   const placeholders = stagingIds.map((_, i) => `:id${i}`).join(',');
+//   const binds = {};
+//   stagingIds.forEach((id, i) => { binds[`id${i}`] = id; });
+
+//   const conn = await getConnection();
+//   try {
+//     // ── staging rows read করো যাতে debit/credit derive করতে পারি ──
+//     const stagingResult = await conn.execute(
+//       `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+//               CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+//               INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+//               SOURCE_TYPE, REMARKS, USER_ID, ENTRY_TYPE
+//        FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID IN (${placeholders})`,
+//       binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//     );
+
+//     for (const row of stagingResult.rows || []) {
+//       let debit = null, credit = null;
+
+//       if (row.SOURCE_TYPE === 'NON_BANKING' && row.ENTRY_TYPE) {
+//         // non-banking: explicit type অনুযায়ী debit/credit
+//         if (row.ENTRY_TYPE === 'DEBIT') debit = Math.abs(Number(row.AMOUNT));
+//         else credit = Math.abs(Number(row.AMOUNT));
+//       } else {
+//         // banking: amount sign অনুযায়ী auto derive
+//         const dc = deriveDebitCredit(row.AMOUNT);
+//         debit = dc.debit;
+//         credit = dc.credit;
+//       }
+
+//       await conn.execute(
+//         `INSERT INTO PM.PM_STATEMENT_MAIN
+//           (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+//            CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+//            INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+//            SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+//          VALUES
+//           (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+//            :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
+//            :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
+//            :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)`,
+//         {
+//           uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
+//           txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
+//           category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
+//           contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
+//           invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
+//           invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
+//           sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
+//           debit, credit, approvedBy, userId: row.USER_ID
+//         }
+//       );
+//     }
+
+//     await conn.execute(
+//       `UPDATE PM.PM_STATEMENT_STAGING SET STATUS = 'APPROVED' WHERE STAGING_ID IN (${placeholders})`,
+//       binds
+//     );
+
+//     await conn.commit();
+//     return { moved: stagingIds.length };
+//   } catch (err) {
+//     await conn.rollback();
+//     throw err;
+//   } finally {
+//     await conn.close();
+//   }
+// }
 export async function approveAndMoveToMain(stagingIds, approvedBy) {
   if (!Array.isArray(stagingIds) || stagingIds.length === 0) {
     throw new Error('No rows selected to approve.');
@@ -568,7 +643,6 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
 
   const conn = await getConnection();
   try {
-    // ── staging rows read করো যাতে debit/credit derive করতে পারি ──
     const stagingResult = await conn.execute(
       `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
               CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
@@ -582,11 +656,9 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
       let debit = null, credit = null;
 
       if (row.SOURCE_TYPE === 'NON_BANKING' && row.ENTRY_TYPE) {
-        // non-banking: explicit type অনুযায়ী debit/credit
         if (row.ENTRY_TYPE === 'DEBIT') debit = Math.abs(Number(row.AMOUNT));
         else credit = Math.abs(Number(row.AMOUNT));
       } else {
-        // banking: amount sign অনুযায়ী auto derive
         const dc = deriveDebitCredit(row.AMOUNT);
         debit = dc.debit;
         credit = dc.credit;
@@ -594,16 +666,17 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
 
       await conn.execute(
         `INSERT INTO PM.PM_STATEMENT_MAIN
-          (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+          (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
            CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
            INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
            SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
          VALUES
-          (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+          (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
            :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
            :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
            :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)`,
         {
+          stagingId: row.STAGING_ID,
           uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
           txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
           category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
@@ -676,8 +749,36 @@ export async function insertNonBankingEntry(data, userId) {
   return { batchId };
 }
 
+// export async function getMainTransactions(filters = {}) {
+//   let sql = `SELECT m.TXN_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE,m.DESCRIPTION,
+//                     m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
+//                     m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
+//                     m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
+//                     m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE
+//              FROM PM.PM_STATEMENT_MAIN m WHERE 1=1`;
+//   const binds = {};
+
+//   if (filters.pId)         { sql += ' AND m.P_ID = :pId';           binds.pId = filters.pId; }
+//   if (filters.category)    { sql += ' AND m.CATEGORY = :category';  binds.category = filters.category; }
+//   if (filters.sourceType)  { sql += ' AND m.SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
+//   if (filters.dateFrom)    { sql += ' AND m.TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
+//   if (filters.dateTo)      { sql += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
+//   if (filters.contractorId){ sql += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
+//   if (filters.invoiceNo)   { sql += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
+//   // ── amount exact match এর বদলে range ──
+//   if (filters.amountMin)   { sql += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+//   if (filters.amountMax)   { sql += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
+//   if (filters.description) { sql += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
+//   // ── নতুন: matched address filter ──
+//   if (filters.matchedAddress) { sql += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+
+//   sql += ' ORDER BY m.TXN_DATE DESC';
+//   const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+//   return result.rows || [];
+// }
+
 export async function getMainTransactions(filters = {}) {
-  let sql = `SELECT m.TXN_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE,m.DESCRIPTION,
+  let sql = `SELECT m.TXN_ID, m.STAGING_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE,m.DESCRIPTION,
                     m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
                     m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
                     m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
@@ -692,11 +793,9 @@ export async function getMainTransactions(filters = {}) {
   if (filters.dateTo)      { sql += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
   if (filters.contractorId){ sql += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
   if (filters.invoiceNo)   { sql += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  // ── amount exact match এর বদলে range ──
   if (filters.amountMin)   { sql += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
   if (filters.amountMax)   { sql += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
   if (filters.description) { sql += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
-  // ── নতুন: matched address filter ──
   if (filters.matchedAddress) { sql += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
 
   sql += ' ORDER BY m.TXN_DATE DESC';
@@ -722,6 +821,22 @@ export async function getMainInvoiceFile(txnId) {
 }
 
 
+// export async function getProjectReport(pId) {
+//   const result = await poolExecute(
+//     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
+//             m.CATEGORY, m.MATCHED_ADDRESS, m.CONTRACTOR_NAME, m.INVOICE_NO,
+//             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE,
+//             p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
+//      FROM PM.PM_STATEMENT_MAIN m
+//      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
+//      WHERE m.P_ID = :pId
+//      ORDER BY m.TXN_DATE DESC`,
+//     { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return result.rows || [];
+// }
+
+
 export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
@@ -730,9 +845,53 @@ export async function getProjectReport(pId) {
             p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
      FROM PM.PM_STATEMENT_MAIN m
      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
+     LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
      WHERE m.P_ID = :pId
-     ORDER BY m.TXN_DATE DESC`,
+     ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
     { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   return result.rows || [];
+}
+
+
+
+export async function disapproveTransaction(txnId) {
+  const conn = await getConnection();
+  try {
+    // Get the STAGING_ID from MAIN
+    const mainResult = await conn.execute(
+      `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+      { txnId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const row = mainResult.rows?.[0];
+    if (!row) {
+      throw new Error('Transaction not found.');
+    }
+
+    const stagingId = row.STAGING_ID;
+    if (!stagingId) {
+      throw new Error('This is a legacy record and cannot be disapproved.');
+    }
+
+    // Delete from MAIN
+    await conn.execute(
+      `DELETE FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+      { txnId }
+    );
+
+    // Update STAGING back to PENDING
+    await conn.execute(
+      `UPDATE PM.PM_STATEMENT_STAGING SET STATUS = 'PENDING' WHERE STAGING_ID = :stagingId`,
+      { stagingId }
+    );
+
+    await conn.commit();
+    return { disapproved: true, stagingId };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
 }

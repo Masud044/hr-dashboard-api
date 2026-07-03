@@ -1,3 +1,4 @@
+// src\modules\project\controller.js
 import multer from "multer";
 import {
   insertProject,
@@ -6,7 +7,9 @@ import {
   deleteProject,
   getDocBlob,
   uploadCertificateDoc,
-  sendBulkEmailToContractors
+  sendBulkEmailToContractors,
+  reorderProject,
+  moveProject,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -259,3 +262,54 @@ return res.json({
 });
 }
 
+// ─────────────────────────────────────────────
+// PATCH /project/:id/move
+// Body: { direction: "up" | "down" }
+// ─────────────────────────────────────────────
+export async function handleMoveProject(req, res) {
+  const p_id = Number(req.params.id);
+  if (!p_id || p_id <= 0) {
+    return res.status(400).json({ success: false, message: "Invalid project ID." });
+  }
+
+  const { direction } = req.body;
+  if (direction !== "up" && direction !== "down") {
+    return res.status(400).json({
+      success: false,
+      message: "direction must be 'up' or 'down'.",
+    });
+  }
+
+  const result = await moveProject(p_id, direction);
+  return res.json({
+    success: true,
+    message: "Project position updated successfully.",
+    data: result,
+  });
+}
+
+// ─────────────────────────────────────────────
+// PATCH /project/:id/reorder
+// Body: { newPosition: number }
+// ─────────────────────────────────────────────
+export async function handleReorderProject(req, res) {
+  const p_id = Number(req.params.id);
+  if (!p_id || p_id <= 0) {
+    return res.status(400).json({ success: false, message: "Invalid project ID." });
+  }
+
+  const { newPosition } = req.body;
+  if (!newPosition || Number(newPosition) <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "newPosition must be a positive number.",
+    });
+  }
+
+  const result = await reorderProject(p_id, Number(newPosition));
+  return res.json({
+    success: true,
+    message: "Project reordered successfully.",
+    data: result,
+  });
+}
