@@ -8,6 +8,7 @@ import {
   handleNotifyContractors,
   handleMoveProject,
   handleReorderProject,
+   handleUpdateProjectStatus,
 } from "./controller.js";
 
 const router = Router();
@@ -25,5 +26,7 @@ router.post("/notify-bulk", asyncHandler(handleNotifyContractors));
 // Reorder — manual sort feature
 router.patch("/:id/move",    asyncHandler(handleMoveProject));
 router.patch("/:id/reorder", asyncHandler(handleReorderProject));
+
+router.patch("/:id/status",  asyncHandler(handleUpdateProjectStatus));
 
 export default router;

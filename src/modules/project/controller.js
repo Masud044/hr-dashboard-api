@@ -9,6 +9,7 @@ import {
   uploadCertificateDoc,
   sendBulkEmailToContractors,
   reorderProject,
+   updateProjectStatus,
   moveProject,
 } from "./service.js";
 
@@ -312,4 +313,51 @@ export async function handleReorderProject(req, res) {
     message: "Project reordered successfully.",
     data: result,
   });
+}
+
+// ─────────────────────────────────────────────
+// PATCH /project/:id/status
+// Body: { PROJECT_STATUS: "RUNNING" | "COMPLETED" | "ON_HOLD" | "CANCELLED", UPDATED_BY?: number }
+// ─────────────────────────────────────────────
+export async function handleUpdateProjectStatus(req, res) {
+  const p_id = Number(req.params.id);
+  if (!p_id || p_id <= 0) {
+    return res.status(400).json({ success: false, message: "Invalid project ID." });
+  }
+
+  const { PROJECT_STATUS, UPDATED_BY } = req.body;
+  
+  if (!PROJECT_STATUS) {
+    return res.status(400).json({
+      success: false,
+      message: "PROJECT_STATUS is required.",
+    });
+  }
+
+  // Optional safety check: ensure it's a valid status
+  const allowedStatuses = ["RUNNING", "COMPLETED", "ON_HOLD", "CANCELLED", "DRAFT"];
+  if (!allowedStatuses.includes(PROJECT_STATUS)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid status. Allowed: ${allowedStatuses.join(", ")}`,
+    });
+  }
+
+  const updated_by = Number(UPDATED_BY || 0);
+
+  try {
+    const rowsAffected = await updateProjectStatus(p_id, PROJECT_STATUS, updated_by);
+    
+    if (rowsAffected === 0) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    return res.json({
+      success: true,
+      message: "Project status updated successfully.",
+    });
+  } catch (err) {
+    console.error("Status update error:", err);
+    return res.status(500).json({ success: false, message: "Failed to update project status." });
+  }
 }
