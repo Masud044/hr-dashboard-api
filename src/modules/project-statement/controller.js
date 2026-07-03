@@ -1,8 +1,9 @@
+// src\modules\project-statement\controller.js
 import {
   processCsvToStaging, getStagingByBatch, getStagingFiltered, approveAndMoveToMain,
   getMainTransactions, getLatestPendingBatch, getAllProjects, getAllContractors,
   updateStagingRow, uploadInvoiceFile, deleteInvoiceFile, getInvoiceFile, getMainInvoiceFile,
-  insertNonBankingEntry, getProjectReport
+  insertNonBankingEntry, getProjectReport, disapproveTransaction // <-- ADDED HERE
 } from './service.js';
 
 export async function statementHandler(req, res) {
@@ -56,6 +57,14 @@ export async function statementHandler(req, res) {
         return res.status(400).json({ success: false, message: 'stagingIds array is required.' });
       const result = await approveAndMoveToMain(stagingIds, approvedBy);
       return res.status(200).json({ success: true, message: `${result.moved} row(s) approved and moved to main.` });
+    }
+
+    // ── NEW: Disapprove Case ──
+    case 'disapprove': {
+      const { txnId } = req.body;
+      if (!txnId) return res.status(400).json({ success: false, message: 'txnId is required.' });
+      const result = await disapproveTransaction(txnId);
+      return res.status(200).json({ success: true, message: 'Transaction disapproved and moved back to staging.', ...result });
     }
 
     case 'getLatestBatch': {
@@ -163,6 +172,7 @@ function inferAction(req) {
   if (method === 'GET'  && path.includes('invoice'))                return 'getInvoiceFile';
   if (method === 'POST' && path.includes('upload'))                 return 'upload';
   if (method === 'POST' && path.includes('approve'))                return 'approve';
+  if (method === 'POST' && path.includes('disapprove'))             return 'disapprove';
   if (method === 'PUT'  && path.includes('row'))                    return 'updateRow';
   if (method === 'GET'  && path.includes('staging/all'))            return 'getStagingAll';
   if (method === 'GET'  && path.includes('staging'))                return 'getStaging';

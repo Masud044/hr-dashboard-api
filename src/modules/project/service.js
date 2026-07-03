@@ -1,3 +1,4 @@
+// src\modules\project\service.js
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 import { sendMail } from "../../utils/mailer.js";
@@ -103,7 +104,7 @@ export async function insertProject(data, files = []) {
 export async function searchProject(p_id) {
   const connection = await getConnection();
   try {
-    let sql = `
+let sql = `
   SELECT
     P_ID, P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID,
     TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
@@ -112,7 +113,8 @@ export async function searchProject(p_id) {
     LOT, DP, INSURANCE_NO,
     TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
     TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
-    P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS
+    P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
+    SORT_ORDER
   FROM PM.PM_PROJECT`;
 
     const binds = {};
@@ -624,6 +626,117 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
 
     const sent = results.filter((r) => r.status === "fulfilled").length;
     return { sent, failed: results.length - sent, total: contractors.length };
+  } finally {
+    await connection.close();
+  }
+}
+
+
+
+
+// ─────────────────────────────────────────────
+// REORDER: shift SORT_ORDER for a project to a new position
+// ─────────────────────────────────────────────
+async function reorderProjectQuery(connection, p_id, newPosition) {
+  const current = await connection.execute(
+    `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :id`,
+    { id: Number(p_id) },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+
+  if (!current.rows.length) {
+    throw new Error(`Project ${p_id} not found`);
+  }
+
+  const oldPosition = current.rows[0].SORT_ORDER;
+
+  const countResult = await connection.execute(
+    `SELECT COUNT(*) AS TOTAL FROM PM.PM_PROJECT`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const totalCount = countResult.rows[0].TOTAL;
+
+  let target = Number(newPosition);
+  if (target < 1) target = 1;
+  if (target > totalCount) target = totalCount;
+
+  if (target === oldPosition) {
+    return { p_id, oldPosition, newPosition: target, moved: false };
+  }
+
+  // Park the moved row on a safe, non-colliding temp value first
+  await connection.execute(
+    `UPDATE PM.PM_PROJECT SET SORT_ORDER = -1 WHERE P_ID = :id`,
+    { id: Number(p_id) },
+    { autoCommit: false }
+  );
+
+  if (target < oldPosition) {
+    await connection.execute(
+      `UPDATE PM.PM_PROJECT
+          SET SORT_ORDER = SORT_ORDER + 1
+        WHERE SORT_ORDER >= :target AND SORT_ORDER < :oldPosition`,
+      { target, oldPosition },
+      { autoCommit: false }
+    );
+  } else {
+    await connection.execute(
+      `UPDATE PM.PM_PROJECT
+          SET SORT_ORDER = SORT_ORDER - 1
+        WHERE SORT_ORDER > :oldPosition AND SORT_ORDER <= :target`,
+      { target, oldPosition },
+      { autoCommit: false }
+    );
+  }
+
+  await connection.execute(
+    `UPDATE PM.PM_PROJECT SET SORT_ORDER = :target WHERE P_ID = :id`,
+    { target, id: Number(p_id) },
+    { autoCommit: false }
+  );
+
+  return { p_id, oldPosition, newPosition: target, moved: true };
+}
+
+// ── EXPORTED: reorder a project to an explicit position (used by input box) ─
+export async function reorderProject(p_id, newPosition) {
+  const connection = await getConnection();
+  try {
+    const result = await reorderProjectQuery(connection, p_id, newPosition);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+// ── EXPORTED: move up/down by one position (used by arrow buttons) ───────────
+export async function moveProject(p_id, direction) {
+  const connection = await getConnection();
+  try {
+    const current = await connection.execute(
+      `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :id`,
+      { id: Number(p_id) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    if (!current.rows.length) {
+      throw new Error(`Project ${p_id} not found`);
+    }
+
+    const oldPosition = current.rows[0].SORT_ORDER;
+    const target = direction === "up" ? oldPosition - 1 : oldPosition + 1;
+
+    const result = await reorderProjectQuery(connection, p_id, target);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }
