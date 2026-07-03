@@ -4,7 +4,9 @@ import {
   getContractorDetail,
   updateContractorWithTypes,
   deleteContractorWithTypes,
-   getContractorTypeInfoMap,
+  getContractorTypeInfoMap,
+  reorderContractor,
+  moveContractor,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -171,6 +173,79 @@ export async function getContractorTypeInfo(req, res) {
     return res.status(500).json({
       success: false,
       message: "Failed to fetch contractor type info.",
+      error: err.message,
+    });
+  }
+}
+
+
+// ─────────────────────────────────────────────
+//  PATCH /api/contractors/:id/move
+//  Body: { direction: "up" | "down" }
+// ─────────────────────────────────────────────
+export async function moveContractorPosition(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid contractor ID." });
+    }
+
+    const { direction } = req.body;
+    if (direction !== "up" && direction !== "down") {
+      return res.status(400).json({
+        success: false,
+        message: "direction must be 'up' or 'down'.",
+      });
+    }
+
+    const result = await moveContractor(id, direction);
+
+    return res.status(200).json({
+      success: true,
+      message: "Contractor position updated successfully.",
+      data: result,
+    });
+  } catch (err) {
+    console.error("[moveContractorPosition] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to move contractor.",
+      error: err.message,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
+//  PATCH /api/contractors/:id/reorder
+//  Body: { newPosition: 5 }
+// ─────────────────────────────────────────────
+export async function reorderContractorPosition(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!id || id <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid contractor ID." });
+    }
+
+    const { newPosition } = req.body;
+    if (!newPosition || Number(newPosition) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "newPosition must be a positive number.",
+      });
+    }
+
+    const result = await reorderContractor(id, Number(newPosition));
+
+    return res.status(200).json({
+      success: true,
+      message: "Contractor reordered successfully.",
+      data: result,
+    });
+  } catch (err) {
+    console.error("[reorderContractorPosition] Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reorder contractor.",
       error: err.message,
     });
   }

@@ -1,3 +1,4 @@
+// src\modules\contractor-info\service.js
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 
@@ -149,7 +150,8 @@ async function searchContractorQuery(contrator_id) {
              STATUS, ABN, LIEC_NO, SUBURB, POSTCODE, STATE, ADDRESS,
              CONTACT_PERSON, PHONE, EMAIL, MOBILE,
              DUE, REMARKS, FAX,
-             CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER
+             CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER,
+             SORT_ORDER
         FROM PM_CONTRACTOR_INFO`;
 
     const binds = {};
@@ -362,6 +364,116 @@ export async function getContractorTypeInfoMap() {
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     return result.rows || [];
+  } finally {
+    await connection.close();
+  }
+}
+
+
+
+// ── REORDER: shift SORT_ORDER for a contractor to a new position ────────────
+async function reorderContractorQuery(connection, contractorId, newPosition) {
+  const current = await connection.execute(
+    `SELECT SORT_ORDER FROM PM_CONTRACTOR_INFO WHERE CONTRATOR_ID = :id`,
+    { id: Number(contractorId) },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+
+  if (!current.rows.length) {
+    throw new Error(`Contractor ${contractorId} not found`);
+  }
+
+  const oldPosition = current.rows[0].SORT_ORDER;
+
+  const countResult = await connection.execute(
+    `SELECT COUNT(*) AS TOTAL FROM PM_CONTRACTOR_INFO`,
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const totalCount = countResult.rows[0].TOTAL;
+
+  let target = Number(newPosition);
+  if (target < 1) target = 1;
+  if (target > totalCount) target = totalCount;
+
+  if (target === oldPosition) {
+    return { contractorId, oldPosition, newPosition: target, moved: false };
+  }
+
+  // Step 1: park the moved row on a safe, non-colliding temp value
+  await connection.execute(
+    `UPDATE PM_CONTRACTOR_INFO SET SORT_ORDER = -1 WHERE CONTRATOR_ID = :id`,
+    { id: Number(contractorId) },
+    { autoCommit: false }
+  );
+
+  // Step 2: now shift the range safely, since the moved row is out of the way
+  if (target < oldPosition) {
+    await connection.execute(
+      `UPDATE PM_CONTRACTOR_INFO
+          SET SORT_ORDER = SORT_ORDER + 1
+        WHERE SORT_ORDER >= :target AND SORT_ORDER < :oldPosition`,
+      { target, oldPosition },
+      { autoCommit: false }
+    );
+  } else {
+    await connection.execute(
+      `UPDATE PM_CONTRACTOR_INFO
+          SET SORT_ORDER = SORT_ORDER - 1
+        WHERE SORT_ORDER > :oldPosition AND SORT_ORDER <= :target`,
+      { target, oldPosition },
+      { autoCommit: false }
+    );
+  }
+
+  // Step 3: place the moved contractor into its real new slot
+  await connection.execute(
+    `UPDATE PM_CONTRACTOR_INFO SET SORT_ORDER = :target WHERE CONTRATOR_ID = :id`,
+    { target, id: Number(contractorId) },
+    { autoCommit: false }
+  );
+
+  return { contractorId, oldPosition, newPosition: target, moved: true };
+}
+
+// ── EXPORTED: reorder a contractor to an explicit position (used by input box) ─
+export async function reorderContractor(contractorId, newPosition) {
+  const connection = await getConnection();
+  try {
+    const result = await reorderContractorQuery(connection, contractorId, newPosition);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+// ── EXPORTED: move up/down by one position (used by arrow buttons) ───────────
+export async function moveContractor(contractorId, direction) {
+  const connection = await getConnection();
+  try {
+    const current = await connection.execute(
+      `SELECT SORT_ORDER FROM PM_CONTRACTOR_INFO WHERE CONTRATOR_ID = :id`,
+      { id: Number(contractorId) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    if (!current.rows.length) {
+      throw new Error(`Contractor ${contractorId} not found`);
+    }
+
+    const oldPosition = current.rows[0].SORT_ORDER;
+    const target = direction === "up" ? oldPosition - 1 : oldPosition + 1;
+
+    const result = await reorderContractorQuery(connection, contractorId, target);
+    await connection.commit();
+    return result;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }
