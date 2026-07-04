@@ -431,34 +431,145 @@ export async function getStagingByBatch(batchId) {
 }
 
 // ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
-// ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
-export async function getStagingFiltered(filters = {}) {
+// ── এখন optional pagination + stats সহ: page/pageSize না দিলে আগের মতোই সব rows রিটার্ন করবে ──
+export async function getStagingFiltered(filters = {}, pagination = {}) {
+  const { where, binds } = buildStagingWhere(filters);
+
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
                     CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
                     INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, STATUS
-             FROM PM.PM_STATEMENT_STAGING WHERE 1=1`;
+             FROM PM.PM_STATEMENT_STAGING ${where}
+             ORDER BY TXN_DATE DESC, STAGING_ID DESC`;
+
+  const { page, pageSize } = pagination;
+  const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
+
+  if (!isPaginated) {
+    const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    return result.rows || [];
+  }
+
+  const offset = (Number(page) - 1) * Number(pageSize);
+  const pagedSql = `${sql} OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY`;
+  const pagedBinds = { ...binds, offset, pageSize: Number(pageSize) };
+
+  const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_STAGING ${where}`;
+
+  const [dataResult, countResult] = await Promise.all([
+    poolExecute(pagedSql, pagedBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+    poolExecute(countSql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+  ]);
+
+  return {
+    rows: dataResult.rows || [],
+    totalCount: Number(countResult.rows?.[0]?.TOTAL || 0),
+  };
+}
+
+// ── category breakdown (address/place/product/other counts), same filters minus category itself ──
+export async function getStagingStats(filters = {}) {
+  const { category, categories, ...rest } = filters; // category filter excluded so stats show full breakdown
+  const { where, binds } = buildStagingWhere(rest);
+
+  const sql = `SELECT NVL(CATEGORY, 'other') AS CATEGORY, COUNT(*) AS CNT
+               FROM PM.PM_STATEMENT_STAGING ${where}
+               GROUP BY CATEGORY`;
+
+  const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+  const stats = { address: 0, place: 0, product: 0, other: 0 };
+  for (const row of result.rows || []) {
+    const key = (row.CATEGORY || 'other').toLowerCase();
+    if (stats[key] !== undefined) stats[key] = Number(row.CNT);
+    else stats.other += Number(row.CNT);
+  }
+  return stats;
+}
+
+// ── WHERE clause builder, shared by getStagingFiltered / getStagingStats ──
+function buildStagingWhere(filters = {}) {
+  let where = 'WHERE 1=1';
   const binds = {};
 
-  if (filters.sourceType) { sql += ' AND SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
-  if (filters.status)     { sql += ' AND STATUS = :status';         binds.status = filters.status; }
-  if (filters.dateFrom)   { sql += ' AND TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
-  if (filters.dateTo)     { sql += ' AND TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
-  if (filters.pId)        { sql += ' AND P_ID = :pId'; binds.pId = filters.pId; }
-  if (filters.contractorId) { sql += ' AND CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
-  if (filters.invoiceNo)  { sql += ' AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  // ── amount exact match এর বদলে range ──
-  if (filters.amountMin)  { sql += ' AND AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
-  if (filters.amountMax)  { sql += ' AND AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
-  if (filters.description){ sql += ' AND UPPER(DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
-  if (filters.category)   { sql += ' AND CATEGORY = :category'; binds.category = filters.category; }
-  // ── নতুন: matched address filter ──
-  if (filters.matchedAddress) { sql += ' AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+  if (filters.sourceType) { where += ' AND SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
+  if (filters.status)     { where += ' AND STATUS = :status';         binds.status = filters.status; }
+  if (filters.dateFrom)   { where += ' AND TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
+  if (filters.dateTo)     { where += ' AND TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
+  if (filters.pId)        { where += ' AND P_ID = :pId'; binds.pId = filters.pId; }
+  if (filters.contractorId) { where += ' AND CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
+  if (filters.invoiceNo)  { where += ' AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
+  if (filters.amountMin)  { where += ' AND AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+  if (filters.amountMax)  { where += ' AND AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
+  if (filters.description){ where += ' AND UPPER(DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
+  if (filters.matchedAddress) { where += ' AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
 
-  sql += ' ORDER BY TXN_DATE DESC';
-  const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-  return result.rows || [];
+  // ── single category dropdown filter (existing behavior) ──
+  if (filters.category) { where += ' AND CATEGORY = :category'; binds.category = filters.category; }
+
+  // ── NEW: multi-select checkbox filter, e.g. categories=address,place ──
+  if (filters.categories) {
+    const list = String(filters.categories).split(',').map((c) => c.trim()).filter(Boolean);
+    if (list.length > 0) {
+      const placeholders = list.map((_, i) => `:cat${i}`).join(',');
+      list.forEach((c, i) => { binds[`cat${i}`] = c; });
+      where += ` AND CATEGORY IN (${placeholders})`;
+    }
+  }
+
+  return { where, binds };
 }
+
+// ── category breakdown (address/place/product/other counts), same filters minus category itself ──
+// export async function getStagingStats(filters = {}) {
+//   const { category, categories, ...rest } = filters; // category filter excluded so stats show full breakdown
+//   const { where, binds } = buildStagingWhere(rest);
+
+//   const sql = `SELECT NVL(CATEGORY, 'other') AS CATEGORY, COUNT(*) AS CNT
+//                FROM PM.PM_STATEMENT_STAGING ${where}
+//                GROUP BY CATEGORY`;
+
+//   const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+//   const stats = { address: 0, place: 0, product: 0, other: 0 };
+//   for (const row of result.rows || []) {
+//     const key = (row.CATEGORY || 'other').toLowerCase();
+//     if (stats[key] !== undefined) stats[key] = Number(row.CNT);
+//     else stats.other += Number(row.CNT);
+//   }
+//   return stats;
+// }
+
+// ── WHERE clause builder, shared by getStagingFiltered / getStagingStats ──
+// function buildStagingWhere(filters = {}) {
+//   let where = 'WHERE 1=1';
+//   const binds = {};
+
+//   if (filters.sourceType) { where += ' AND SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
+//   if (filters.status)     { where += ' AND STATUS = :status';         binds.status = filters.status; }
+//   if (filters.dateFrom)   { where += ' AND TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
+//   if (filters.dateTo)     { where += ' AND TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
+//   if (filters.pId)        { where += ' AND P_ID = :pId'; binds.pId = filters.pId; }
+//   if (filters.contractorId) { where += ' AND CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
+//   if (filters.invoiceNo)  { where += ' AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
+//   if (filters.amountMin)  { where += ' AND AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+//   if (filters.amountMax)  { where += ' AND AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
+//   if (filters.description){ where += ' AND UPPER(DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
+//   if (filters.matchedAddress) { where += ' AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+
+//   // ── single category dropdown filter (existing behavior) ──
+//   if (filters.category) { where += ' AND CATEGORY = :category'; binds.category = filters.category; }
+
+//   // ── NEW: multi-select checkbox filter, e.g. categories=address,place ──
+//   if (filters.categories) {
+//     const list = String(filters.categories).split(',').map((c) => c.trim()).filter(Boolean);
+//     if (list.length > 0) {
+//       const placeholders = list.map((_, i) => `:cat${i}`).join(',');
+//       list.forEach((c, i) => { binds[`cat${i}`] = c; });
+//       where += ` AND CATEGORY IN (${placeholders})`;
+//     }
+//   }
+
+//   return { where, binds };
+// }
 export async function getAllProjects() {
   const result = await poolExecute(`SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY P_NAME`, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
   return result.rows || [];
@@ -777,30 +888,59 @@ export async function insertNonBankingEntry(data, userId) {
 //   return result.rows || [];
 // }
 
-export async function getMainTransactions(filters = {}) {
-  let sql = `SELECT m.TXN_ID, m.STAGING_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE,m.DESCRIPTION,
+export async function getMainTransactions(filters = {}, pagination = {}) {
+  const { where, binds } = buildMainWhere(filters);
+
+  let sql = `SELECT m.TXN_ID, m.STAGING_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE, m.DESCRIPTION,
                     m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
                     m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
                     m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
                     m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE
-             FROM PM.PM_STATEMENT_MAIN m WHERE 1=1`;
+             FROM PM.PM_STATEMENT_MAIN m ${where}
+             ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
+
+  const { page, pageSize } = pagination;
+  const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
+
+  if (!isPaginated) {
+    const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    return result.rows || [];
+  }
+
+  const offset = (Number(page) - 1) * Number(pageSize);
+  const pagedSql = `${sql} OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY`;
+  const pagedBinds = { ...binds, offset, pageSize: Number(pageSize) };
+
+  const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_MAIN m ${where}`;
+
+  const [dataResult, countResult] = await Promise.all([
+    poolExecute(pagedSql, pagedBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+    poolExecute(countSql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+  ]);
+
+  return {
+    rows: dataResult.rows || [],
+    totalCount: Number(countResult.rows?.[0]?.TOTAL || 0),
+  };
+}
+
+function buildMainWhere(filters = {}) {
+  let where = 'WHERE 1=1';
   const binds = {};
 
-  if (filters.pId)         { sql += ' AND m.P_ID = :pId';           binds.pId = filters.pId; }
-  if (filters.category)    { sql += ' AND m.CATEGORY = :category';  binds.category = filters.category; }
-  if (filters.sourceType)  { sql += ' AND m.SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
-  if (filters.dateFrom)    { sql += ' AND m.TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
-  if (filters.dateTo)      { sql += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
-  if (filters.contractorId){ sql += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
-  if (filters.invoiceNo)   { sql += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  if (filters.amountMin)   { sql += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
-  if (filters.amountMax)   { sql += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
-  if (filters.description) { sql += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
-  if (filters.matchedAddress) { sql += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+  if (filters.pId)         { where += ' AND m.P_ID = :pId';           binds.pId = filters.pId; }
+  if (filters.category)    { where += ' AND m.CATEGORY = :category';  binds.category = filters.category; }
+  if (filters.sourceType)  { where += ' AND m.SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
+  if (filters.dateFrom)    { where += ' AND m.TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
+  if (filters.dateTo)      { where += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
+  if (filters.contractorId){ where += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
+  if (filters.invoiceNo)   { where += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
+  if (filters.amountMin)   { where += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
+  if (filters.amountMax)   { where += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
+  if (filters.description) { where += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
+  if (filters.matchedAddress) { where += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
 
-  sql += ' ORDER BY m.TXN_DATE DESC';
-  const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-  return result.rows || [];
+  return { where, binds };
 }
 export async function getMainInvoiceFile(txnId) {
   const conn = await getConnection();

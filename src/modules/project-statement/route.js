@@ -16,6 +16,9 @@ router.get('/staging/all',
   asyncHandler((req, res) => { req.params.action = 'getStagingAll'; return statementHandler(req, res); })
 );
 
+router.get('/staging/stats',
+  asyncHandler((req, res) => { req.params.action = 'getStagingStats'; return statementHandler(req, res); })
+);
 router.get('/staging/:batchId',
   asyncHandler((req, res) => { req.params.action = 'getStaging'; return statementHandler(req, res); })
 );
@@ -72,5 +75,7 @@ router.post('/non-banking',
 router.get('/project-report/:pId',
   asyncHandler((req, res) => { req.params.action = 'getProjectReport'; return statementHandler(req, res); })
 );
+
+
 
 export default router;
