@@ -107,25 +107,45 @@ export async function handleProject(req, res) {
   }
 
   // ── DELETE  ──────────────────────────────────
+  // if (req.method === "DELETE") {
+  //   if (!req.body?.P_ID) {
+  //     return res.status(400).json({
+  //       success: false,
+  //       message: "P_ID is required for deletion.",
+  //     });
+  //   }
+  //   const rows = await deleteProject(req.body.P_ID);
+  //   if (!rows) {
+  //     return res.status(404).json({
+  //       success: false,
+  //       message: `Project with ID ${req.body.P_ID} not found.`,
+  //     });
+  //   }
+  //   return res.json({
+  //     success: true,
+  //     message: `Project ${req.body.P_ID} deleted successfully.`,
+  //   });
+  // }
   if (req.method === "DELETE") {
-    if (!req.body?.P_ID) {
-      return res.status(400).json({
-        success: false,
-        message: "P_ID is required for deletion.",
-      });
-    }
-    const rows = await deleteProject(req.body.P_ID);
-    if (!rows) {
-      return res.status(404).json({
-        success: false,
-        message: `Project with ID ${req.body.P_ID} not found.`,
-      });
-    }
-    return res.json({
-      success: true,
-      message: `Project ${req.body.P_ID} deleted successfully.`,
+  const p_id = Number(req.params.id || 0);
+  if (!p_id || p_id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid project ID is required for deletion.",
     });
   }
+  const rows = await deleteProject(p_id);
+  if (!rows) {
+    return res.status(404).json({
+      success: false,
+      message: `Project with ID ${p_id} not found.`,
+    });
+  }
+  return res.json({
+    success: true,
+    message: `Project ${p_id} deleted successfully.`,
+  });
+}
 
   return res.status(405).json({ success: false, message: "Method not supported." });
 }

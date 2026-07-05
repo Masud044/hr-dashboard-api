@@ -571,12 +571,18 @@ function buildStagingWhere(filters = {}) {
 //   return { where, binds };
 // }
 export async function getAllProjects() {
-  const result = await poolExecute(`SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY P_NAME`, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+  const result = await poolExecute(
+    `SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY SORT_ORDER ASC`,
+    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
   return result.rows || [];
 }
 
 export async function getAllContractors() {
-  const result = await poolExecute(`SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 ORDER BY CONTRATOR_NAME`, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+  const result = await poolExecute(
+    `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 ORDER BY SORT_ORDER ASC`,
+    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
   return result.rows || [];
 }
 
