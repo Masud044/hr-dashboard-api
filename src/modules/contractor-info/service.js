@@ -47,6 +47,54 @@ function sanitizeContractor(data) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── INSERT parent row → returns CONTRATOR_ID ─────────────────────────────────
+// async function insertContractorQuery(connection, data) {
+//   const binds = {
+//     CONTRATOR_NAME:  data.CONTRATOR_NAME,
+//     ENTRY_BY:        data.ENTRY_BY,
+//     UPDATE_BY:       data.UPDATE_BY,
+//     STATUS:          data.STATUS,
+//     ABN:             data.ABN,
+//     LIEC_NO:         data.LIEC_NO,
+//     SUBURB:          data.SUBURB,
+//     POSTCODE:        data.POSTCODE,
+//     STATE:           data.STATE,
+//     ADDRESS:         data.ADDRESS,
+//     CONTACT_PERSON:  data.CONTACT_PERSON,
+//     PHONE:           data.PHONE,
+//     EMAIL:           data.EMAIL,
+//     MOBILE:          data.MOBILE,
+//     DUE:             data.DUE,            // VARCHAR2(20) — null OK
+//     REMARKS:         data.REMARKS,        // VARCHAR2(1000) — null OK
+//     FAX:             data.FAX,            // VARCHAR2(20) — null OK
+//     CUSTOMER_TYPE:   data.CUSTOMER_TYPE,  // NUMBER nullable — null OK
+//     BANK_ACC_NAME:   data.BANK_ACC_NAME,
+//     BSB:             data.BSB,
+//     AC_NO:           data.AC_NO,
+//     INSURER:         data.INSURER,
+//     POLICY_NUMBER:   data.POLICY_NUMBER,
+//     new_id: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+//   };
+
+//   const result = await connection.execute(
+//     `INSERT INTO PM_CONTRACTOR_INFO
+//        (CONTRATOR_NAME, ENTRY_DATE, ENTRY_BY, UPDATE_BY, STATUS,
+//         ABN, LIEC_NO, SUBURB, POSTCODE, STATE, ADDRESS,
+//         CONTACT_PERSON, PHONE, EMAIL, MOBILE,
+//         DUE, REMARKS, FAX,
+//         CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER)
+//      VALUES
+//        (:CONTRATOR_NAME, SYSDATE, :ENTRY_BY, :UPDATE_BY, :STATUS,
+//         :ABN, :LIEC_NO, :SUBURB, :POSTCODE, :STATE, :ADDRESS,
+//         :CONTACT_PERSON, :PHONE, :EMAIL, :MOBILE,
+//         :DUE, :REMARKS, :FAX,
+//         :CUSTOMER_TYPE, :BANK_ACC_NAME, :BSB, :AC_NO, :INSURER, :POLICY_NUMBER)
+//      RETURNING CONTRATOR_ID INTO :new_id`,
+//     binds,
+//     { autoCommit: false }
+//   );
+
+//   return result.outBinds.new_id[0];
+// }
 async function insertContractorQuery(connection, data) {
   const binds = {
     CONTRATOR_NAME:  data.CONTRATOR_NAME,
@@ -63,10 +111,10 @@ async function insertContractorQuery(connection, data) {
     PHONE:           data.PHONE,
     EMAIL:           data.EMAIL,
     MOBILE:          data.MOBILE,
-    DUE:             data.DUE,            // VARCHAR2(20) — null OK
-    REMARKS:         data.REMARKS,        // VARCHAR2(1000) — null OK
-    FAX:             data.FAX,            // VARCHAR2(20) — null OK
-    CUSTOMER_TYPE:   data.CUSTOMER_TYPE,  // NUMBER nullable — null OK
+    DUE:             data.DUE,
+    REMARKS:         data.REMARKS,
+    FAX:             data.FAX,
+    CUSTOMER_TYPE:   data.CUSTOMER_TYPE,
     BANK_ACC_NAME:   data.BANK_ACC_NAME,
     BSB:             data.BSB,
     AC_NO:           data.AC_NO,
@@ -81,13 +129,15 @@ async function insertContractorQuery(connection, data) {
         ABN, LIEC_NO, SUBURB, POSTCODE, STATE, ADDRESS,
         CONTACT_PERSON, PHONE, EMAIL, MOBILE,
         DUE, REMARKS, FAX,
-        CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER)
+        CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER,
+        SORT_ORDER)
      VALUES
        (:CONTRATOR_NAME, SYSDATE, :ENTRY_BY, :UPDATE_BY, :STATUS,
         :ABN, :LIEC_NO, :SUBURB, :POSTCODE, :STATE, :ADDRESS,
         :CONTACT_PERSON, :PHONE, :EMAIL, :MOBILE,
         :DUE, :REMARKS, :FAX,
-        :CUSTOMER_TYPE, :BANK_ACC_NAME, :BSB, :AC_NO, :INSURER, :POLICY_NUMBER)
+        :CUSTOMER_TYPE, :BANK_ACC_NAME, :BSB, :AC_NO, :INSURER, :POLICY_NUMBER,
+        1)
      RETURNING CONTRATOR_ID INTO :new_id`,
     binds,
     { autoCommit: false }
@@ -139,6 +189,35 @@ async function updateContractorQuery(connection, data) {
 }
 
 // ── SELECT contractors (all or by ID) ────────────────────────────────────────
+// async function searchContractorQuery(contrator_id) {
+//   const connection = await getConnection();
+//   try {
+//     let sql = `
+//       SELECT CONTRATOR_ID, CONTRATOR_NAME, ENTRY_BY,
+//              TO_CHAR(ENTRY_DATE,  'YYYY-MM-DD HH24:MI:SS') AS ENTRY_DATE,
+//              UPDATE_BY,
+//              TO_CHAR(UPDATE_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
+//              STATUS, ABN, LIEC_NO, SUBURB, POSTCODE, STATE, ADDRESS,
+//              CONTACT_PERSON, PHONE, EMAIL, MOBILE,
+//              DUE, REMARKS, FAX,
+//              CUSTOMER_TYPE, BANK_ACC_NAME, BSB, AC_NO, INSURER, POLICY_NUMBER,
+//              SORT_ORDER
+//         FROM PM_CONTRACTOR_INFO`;
+
+//     const binds = {};
+//     if (Number(contrator_id) > 0) {
+//       sql += " WHERE CONTRATOR_ID = :c_id_bv";
+//       binds.c_id_bv = Number(contrator_id);
+//     }
+
+//     const result = await connection.execute(sql, binds, {
+//       outFormat: oracledb.OUT_FORMAT_OBJECT,
+//     });
+//     return result.rows || [];
+//   } finally {
+//     await connection.close();
+//   }
+// }
 async function searchContractorQuery(contrator_id) {
   const connection = await getConnection();
   try {
@@ -160,6 +239,8 @@ async function searchContractorQuery(contrator_id) {
       binds.c_id_bv = Number(contrator_id);
     }
 
+    sql += " ORDER BY SORT_ORDER";
+
     const result = await connection.execute(sql, binds, {
       outFormat: oracledb.OUT_FORMAT_OBJECT,
     });
@@ -168,7 +249,6 @@ async function searchContractorQuery(contrator_id) {
     await connection.close();
   }
 }
-
 // ── DELETE parent row ────────────────────────────────────────────────────────
 async function deleteContractorQuery(connection, id) {
   const result = await connection.execute(
@@ -240,13 +320,51 @@ async function getContractorTypesQuery(contractorId) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
+// export async function createContractorWithTypes(payload) {
+//   const { contractor, contractorTypes = [] } = payload;
+//   const sanitized = sanitizeContractor(contractor);
+//   const connection = await getConnection();
+
+//   try {
+//     // Step 1: Insert parent
+//     const contractorId = await insertContractorQuery(connection, sanitized);
+
+//     // Step 2: Insert child type rows
+//     const typeIds = [];
+//     for (const typeValue of contractorTypes) {
+//       const typeId = await insertContractorTypeQuery(connection, {
+//         CONTRATOR_ID:   contractorId,
+//         CONTRATOR_TYPE: typeValue,
+//         CREATED_BY:     sanitized.ENTRY_BY,
+//         UPDATE_BY:      sanitized.UPDATE_BY,
+//       });
+//       typeIds.push(typeId);
+//     }
+
+//     // Step 3: Commit
+//     await connection.commit();
+//     return { contractorId, typeIds };
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
 export async function createContractorWithTypes(payload) {
   const { contractor, contractorTypes = [] } = payload;
   const sanitized = sanitizeContractor(contractor);
   const connection = await getConnection();
 
   try {
-    // Step 1: Insert parent
+    // Step 0: Shift every existing row down by one to make room at the top
+    await connection.execute(
+      `UPDATE PM_CONTRACTOR_INFO SET SORT_ORDER = SORT_ORDER + 1`,
+      {},
+      { autoCommit: false }
+    );
+
+    // Step 1: Insert parent (now forces SORT_ORDER = 1)
     const contractorId = await insertContractorQuery(connection, sanitized);
 
     // Step 2: Insert child type rows
@@ -332,17 +450,58 @@ export async function updateContractorWithTypes(contractorId, payload) {
 }
 
 // ── DELETE ────────────────────────────────────────────────────────────────────
+// export async function deleteContractorWithTypes(contractorId) {
+//   const connection = await getConnection();
+
+//   try {
+//     // Step 1: Delete child rows first (FK constraint)
+//     await deleteContractorTypesByContractorQuery(connection, contractorId);
+
+//     // Step 2: Delete parent row
+//     const rowsAffected = await deleteContractorQuery(connection, contractorId);
+
+//     // Step 3: Commit
+//     await connection.commit();
+//     return rowsAffected;
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
 export async function deleteContractorWithTypes(contractorId) {
   const connection = await getConnection();
 
   try {
+    const id = Number(contractorId);
+
+    // Step 0: Get the SORT_ORDER of the row about to be deleted
+    const current = await connection.execute(
+      `SELECT SORT_ORDER FROM PM_CONTRACTOR_INFO WHERE CONTRATOR_ID = :id`,
+      { id },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    const deletedPosition = current.rows?.[0]?.SORT_ORDER ?? null;
+
     // Step 1: Delete child rows first (FK constraint)
-    await deleteContractorTypesByContractorQuery(connection, contractorId);
+    await deleteContractorTypesByContractorQuery(connection, id);
 
     // Step 2: Delete parent row
-    const rowsAffected = await deleteContractorQuery(connection, contractorId);
+    const rowsAffected = await deleteContractorQuery(connection, id);
 
-    // Step 3: Commit
+    // Step 3: Close the gap: shift every row below the deleted one up by one
+    if (deletedPosition != null) {
+      await connection.execute(
+        `UPDATE PM_CONTRACTOR_INFO
+            SET SORT_ORDER = SORT_ORDER - 1
+          WHERE SORT_ORDER > :deletedPosition`,
+        { deletedPosition },
+        { autoCommit: false }
+      );
+    }
+
+    // Step 4: Commit
     await connection.commit();
     return rowsAffected;
   } catch (err) {

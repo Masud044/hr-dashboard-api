@@ -7,44 +7,141 @@ import { bulkContractorTemplate } from "../../tamplate/contractor-email.js";
 // ─────────────────────────────────────────────
 // PROJECT INSERT  (+ contractor types + docs)
 // ─────────────────────────────────────────────
+// export async function insertProject(data, files = []) {
+//   const connection = await getConnection();
+//   try {
+//     // 1️⃣ Insert project → get P_ID
+//    const result = await connection.execute(
+//   `INSERT INTO PM.PM_PROJECT
+//    (P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
+//     LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
+//     DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS)
+//    VALUES
+//    (:P_NAME, :P_TYPE, :P_ADDRESS, :ADDRESS, :STREET, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
+//     :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
+//     :DESCRIPTION, :FILE_PATH, 'PENDING')
+//    RETURNING P_ID INTO :NEW_P_ID`,
+//   {
+//     P_NAME:                data.P_NAME ?? "",
+//     P_TYPE:                data.P_TYPE ?? null,
+//     P_ADDRESS:             data.P_ADDRESS ?? null,
+//     ADDRESS:               data.ADDRESS ?? null,   // ✅ নতুন
+//     STREET:                data.STREET ?? null,     // ✅ নতুন
+//     SUBWRB:                data.SUBWRB ?? null,
+//     POSTCODE:              data.POSTCODE ?? null,
+//     STATE:                 data.STATE ?? "NSW",     // ✅ default fallback
+//     USER_ID:               Number(data.USER_ID ?? 0),
+//     USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
+//     UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
+//     LOT:                   data.LOT ?? null,
+//     DP:                    data.DP ?? null,
+//     INSURANCE_NO:          data.INSURANCE_NO ?? null,
+//     P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
+//     P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
+//     P_CODE:                data.P_CODE ?? null,
+//     DESCRIPTION:           data.DESCRIPTION ?? null,
+//     FILE_PATH:             null,
+//     NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+//   },
+//   { autoCommit: false }
+// );
+
+//     const P_ID = result.outBinds.NEW_P_ID[0];
+
+//     // 2️⃣ FILE_PATH — logical reference (P_ID পাওয়ার পর)
+//     const filePath = `/pm/${P_ID}/`;
+//     await connection.execute(
+//       `UPDATE PM.PM_PROJECT SET FILE_PATH = :fp WHERE P_ID = :pid`,
+//       { fp: filePath, pid: P_ID },
+//       { autoCommit: false }
+//     );
+
+//     // 3️⃣ Contractor Types
+//     const contractorTypeIds = _parseIds(data.CONTRACTOR_TYPE_IDS);
+//     for (const ctId of contractorTypeIds) {
+//       await connection.execute(
+//         `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
+//          VALUES (:pid, :ctid)`,
+//         { pid: P_ID, ctid: Number(ctId) },
+//         { autoCommit: false }
+//       );
+//     }
+
+//     // 4️⃣ Mandatory files → BLOB insert
+//     for (const file of files) {
+//       await _insertMandatoryDoc(connection, {
+//         P_ID,
+//         FILE_NAME:   file.originalname,
+//         MIME_TYPE:   file.mimetype,
+//         FILE_SIZE:   file.size,
+//         FILE_BUFFER: file.buffer,   // multer memoryStorage থেকে Buffer
+//         CREATION_BY: Number(data.USER_ID ?? 0),
+//       });
+//     }
+
+//     // 5️⃣ Certificate placeholder rows — one per contractor type
+//     for (const ctId of contractorTypeIds) {
+//       await _insertCertPlaceholder(connection, {
+//         P_ID,
+//         CONTRACTOR_TYPE_ID: Number(ctId),
+//         CREATION_BY: Number(data.USER_ID ?? 0),
+//       });
+//     }
+
+//     await connection.commit();
+//     return P_ID;
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
 export async function insertProject(data, files = []) {
   const connection = await getConnection();
   try {
-    // 1️⃣ Insert project → get P_ID
-   const result = await connection.execute(
-  `INSERT INTO PM.PM_PROJECT
-   (P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
-    LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
-    DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS)
-   VALUES
-   (:P_NAME, :P_TYPE, :P_ADDRESS, :ADDRESS, :STREET, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
-    :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
-    :DESCRIPTION, :FILE_PATH, 'PENDING')
-   RETURNING P_ID INTO :NEW_P_ID`,
-  {
-    P_NAME:                data.P_NAME ?? "",
-    P_TYPE:                data.P_TYPE ?? null,
-    P_ADDRESS:             data.P_ADDRESS ?? null,
-    ADDRESS:               data.ADDRESS ?? null,   // ✅ নতুন
-    STREET:                data.STREET ?? null,     // ✅ নতুন
-    SUBWRB:                data.SUBWRB ?? null,
-    POSTCODE:              data.POSTCODE ?? null,
-    STATE:                 data.STATE ?? "NSW",     // ✅ default fallback
-    USER_ID:               Number(data.USER_ID ?? 0),
-    USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
-    UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
-    LOT:                   data.LOT ?? null,
-    DP:                    data.DP ?? null,
-    INSURANCE_NO:          data.INSURANCE_NO ?? null,
-    P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
-    P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
-    P_CODE:                data.P_CODE ?? null,
-    DESCRIPTION:           data.DESCRIPTION ?? null,
-    FILE_PATH:             null,
-    NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
-  },
-  { autoCommit: false }
-);
+    // 0️⃣ Shift every existing row down by one to make room at the top
+    await connection.execute(
+      `UPDATE PM.PM_PROJECT SET SORT_ORDER = SORT_ORDER + 1`,
+      {},
+      { autoCommit: false }
+    );
+
+    // 1️⃣ Insert project → get P_ID, force SORT_ORDER = 1
+    const result = await connection.execute(
+      `INSERT INTO PM.PM_PROJECT
+       (P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
+        LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
+        DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS, SORT_ORDER)
+       VALUES
+       (:P_NAME, :P_TYPE, :P_ADDRESS, :ADDRESS, :STREET, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
+        :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
+        :DESCRIPTION, :FILE_PATH, 'PENDING', 1)
+       RETURNING P_ID INTO :NEW_P_ID`,
+      {
+        P_NAME:                data.P_NAME ?? "",
+        P_TYPE:                data.P_TYPE ?? null,
+        P_ADDRESS:             data.P_ADDRESS ?? null,
+        ADDRESS:               data.ADDRESS ?? null,
+        STREET:                data.STREET ?? null,
+        SUBWRB:                data.SUBWRB ?? null,
+        POSTCODE:              data.POSTCODE ?? null,
+        STATE:                 data.STATE ?? "NSW",
+        USER_ID:               Number(data.USER_ID ?? 0),
+        USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
+        UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
+        LOT:                   data.LOT ?? null,
+        DP:                    data.DP ?? null,
+        INSURANCE_NO:          data.INSURANCE_NO ?? null,
+        P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
+        P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
+        P_CODE:                data.P_CODE ?? null,
+        DESCRIPTION:           data.DESCRIPTION ?? null,
+        FILE_PATH:             null,
+        NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+      },
+      { autoCommit: false }
+    );
 
     const P_ID = result.outBinds.NEW_P_ID[0];
 
@@ -74,7 +171,7 @@ export async function insertProject(data, files = []) {
         FILE_NAME:   file.originalname,
         MIME_TYPE:   file.mimetype,
         FILE_SIZE:   file.size,
-        FILE_BUFFER: file.buffer,   // multer memoryStorage থেকে Buffer
+        FILE_BUFFER: file.buffer,
         CREATION_BY: Number(data.USER_ID ?? 0),
       });
     }
@@ -172,24 +269,26 @@ export async function insertProject(data, files = []) {
 export async function searchProject(p_id) {
   const connection = await getConnection();
   try {
-let sql = `
-  SELECT
-    P_ID, P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID,
-    TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
-    TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
-    USER_BY, UPDATED_BY,
-    LOT, DP, INSURANCE_NO,
-    TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
-    TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
-    P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
-    SORT_ORDER, PROJECT_STATUS
-  FROM PM.PM_PROJECT`;
+    let sql = `
+      SELECT
+        P_ID, P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID,
+        TO_CHAR(CREATION_DATE,         'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE,
+        TO_CHAR(UPDATE_DATE,           'YYYY-MM-DD HH24:MI:SS') AS UPDATE_DATE,
+        USER_BY, UPDATED_BY,
+        LOT, DP, INSURANCE_NO,
+        TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
+        TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
+        P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
+        SORT_ORDER, PROJECT_STATUS
+      FROM PM.PM_PROJECT`;
 
     const binds = {};
     if (p_id > 0) {
       sql += " WHERE P_ID = :p_id_bv";
       binds.p_id_bv = p_id;
     }
+
+    sql += " ORDER BY SORT_ORDER";
 
     const projResult = await connection.execute(sql, binds, {
       outFormat: oracledb.OUT_FORMAT_OBJECT,
@@ -201,7 +300,6 @@ let sql = `
     if (p_id > 0) {
       const proj = projects[0];
 
-      // Contractor types
       const ctResult = await connection.execute(
         `SELECT ID, CONTRACTOR_TYPE_ID,
                 TO_CHAR(CREATION_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATION_DATE
@@ -212,8 +310,6 @@ let sql = `
       );
       proj.CONTRACTOR_TYPES = ctResult.rows || [];
 
-      // Docs — DOC_TYPE (BLOB) টাকে string এ convert করে return করো
-      // BLOB content (actual file binary) download route এ আলাদা দেওয়া হবে
       const docResult = await connection.execute(
         `SELECT ID, CONTRACTOR_TYPE_ID, FILE_NAME, FILE_PATH, MIME_TYPE, FILE_SIZE,
                 UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 20, 1)) AS DOC_FILE_LABEL,
@@ -516,24 +612,74 @@ export async function updateProjectStatus(p_id, status, updated_by) {
 // ─────────────────────────────────────────────
 // PROJECT DELETE
 // ─────────────────────────────────────────────
+// export async function deleteProject(p_id) {
+//   const connection = await getConnection();
+//   try {
+//     await connection.execute(
+//       `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
+//       { pid: Number(p_id) },
+//       { autoCommit: false }
+//     );
+//     await connection.execute(
+//       `DELETE FROM PM.PM_PROJECT_DOC WHERE P_ID = :pid`,
+//       { pid: Number(p_id) },
+//       { autoCommit: false }
+//     );
+//     const result = await connection.execute(
+//       `DELETE FROM PM.PM_PROJECT WHERE P_ID = :pid`,
+//       { pid: Number(p_id) },
+//       { autoCommit: false }
+//     );
+//     await connection.commit();
+//     return result.rowsAffected;
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
 export async function deleteProject(p_id) {
   const connection = await getConnection();
   try {
+    const id = Number(p_id);
+
+    // 0️⃣ Get the SORT_ORDER of the row about to be deleted
+    const current = await connection.execute(
+      `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :pid`,
+      { pid: id },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    const deletedPosition = current.rows?.[0]?.SORT_ORDER ?? null;
+
     await connection.execute(
       `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
-      { pid: Number(p_id) },
+      { pid: id },
       { autoCommit: false }
     );
     await connection.execute(
       `DELETE FROM PM.PM_PROJECT_DOC WHERE P_ID = :pid`,
-      { pid: Number(p_id) },
+      { pid: id },
       { autoCommit: false }
     );
     const result = await connection.execute(
       `DELETE FROM PM.PM_PROJECT WHERE P_ID = :pid`,
-      { pid: Number(p_id) },
+      { pid: id },
       { autoCommit: false }
     );
+
+    // 1️⃣ Close the gap: shift every row below the deleted one up by one
+    if (deletedPosition != null) {
+      await connection.execute(
+        `UPDATE PM.PM_PROJECT
+            SET SORT_ORDER = SORT_ORDER - 1
+          WHERE SORT_ORDER > :deletedPosition`,
+        { deletedPosition },
+        { autoCommit: false }
+      );
+    }
+
     await connection.commit();
     return result.rowsAffected;
   } catch (err) {

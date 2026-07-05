@@ -16,7 +16,7 @@ const router = Router();
 router.get("/",         asyncHandler(handleProject));
 router.post("/",        asyncHandler(handleProject));
 router.put("/",         asyncHandler(handleProject));
-router.delete("/",      asyncHandler(handleProject));
+router.delete("/:id", asyncHandler(handleProject));
 
 router.get("/doc/:id",  asyncHandler(handleDocDownload));
 router.put("/doc/:id/upload", asyncHandler(handleCertificateUpload));
