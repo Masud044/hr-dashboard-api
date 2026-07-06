@@ -29,6 +29,10 @@ import authV2Route from "./modules/auth-v2/auth-v2.routes.js";
 import projectNoteRoutes from "./modules/project-note/route.js";
 import overviewRoutes from "./modules/overview/route.js";
 
+import workerRoutes from "./modules/worker/route.js";
+import workerRateRoutes from "./modules/worker-rate/route.js";
+import workerAttendanceRoutes from "./modules/worker-attendance/route.js";
+
 const app = express();
 
 app.use(express.json());
@@ -92,6 +96,12 @@ app.use("/api/contractor-type-info", contractorTypeInfoRoutes);
 app.use("/api/owner-info", ownerInfoRoutes);
 app.use("/api/project-note", projectNoteRoutes);
 app.use("/api/overview", overviewRoutes);
+
+
+
+app.use("/api/worker", workerRoutes);
+app.use("/api/worker-rate", workerRateRoutes);
+app.use("/api/worker-attendance", workerAttendanceRoutes);
 
 app.use(errorMiddleware);
 
