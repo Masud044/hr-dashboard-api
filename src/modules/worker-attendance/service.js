@@ -19,10 +19,45 @@ function calcHours(startTime, endTime) {
   return Math.round((diffMinutes / 60) * 100) / 100;
 }
 
+// function validateAndPrepare(data) {
+//   if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
+//     throw new Error("ENTRY_MODE must be 'TIME' or 'HOURS'.");
+//   }
+//   if (!["HOUR", "DAY"].includes(data.CALC_BASIS)) {
+//     throw new Error("CALC_BASIS must be 'HOUR' or 'DAY'.");
+//   }
+
+//   let hoursWorked = null;
+//   let daysWorked = null;
+//   let startTime = null;
+//   let endTime = null;
+
+//   if (data.CALC_BASIS === "DAY") {
+//     if (data.DAYS_WORKED == null) {
+//       throw new Error("DAYS_WORKED is required when CALC_BASIS is 'DAY'.");
+//     }
+//     daysWorked = Number(data.DAYS_WORKED);
+//   } else {
+//     if (data.ENTRY_MODE === "TIME") {
+//       if (!data.START_TIME || !data.END_TIME) {
+//         throw new Error("START_TIME and END_TIME are required when ENTRY_MODE is 'TIME'.");
+//       }
+//       startTime = data.START_TIME;
+//       endTime = data.END_TIME;
+//       hoursWorked = calcHours(startTime, endTime);
+//     } else {
+//       if (data.HOURS_WORKED == null) {
+//         throw new Error("HOURS_WORKED is required when ENTRY_MODE is 'HOURS'.");
+//       }
+//       hoursWorked = Number(data.HOURS_WORKED);
+//     }
+//   }
+
+//   return { hoursWorked, daysWorked, startTime, endTime };
+// }
+
+
 function validateAndPrepare(data) {
-  if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
-    throw new Error("ENTRY_MODE must be 'TIME' or 'HOURS'.");
-  }
   if (!["HOUR", "DAY"].includes(data.CALC_BASIS)) {
     throw new Error("CALC_BASIS must be 'HOUR' or 'DAY'.");
   }
@@ -38,6 +73,9 @@ function validateAndPrepare(data) {
     }
     daysWorked = Number(data.DAYS_WORKED);
   } else {
+    if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
+      throw new Error("ENTRY_MODE must be 'TIME' or 'HOURS'.");
+    }
     if (data.ENTRY_MODE === "TIME") {
       if (!data.START_TIME || !data.END_TIME) {
         throw new Error("START_TIME and END_TIME are required when ENTRY_MODE is 'TIME'.");
@@ -55,7 +93,6 @@ function validateAndPrepare(data) {
 
   return { hoursWorked, daysWorked, startTime, endTime };
 }
-
 // ─────────────────────────────────────────────
 // INSERT ATTENDANCE
 // ─────────────────────────────────────────────

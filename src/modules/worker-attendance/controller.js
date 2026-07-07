@@ -12,12 +12,36 @@ import {
 // ─────────────────────────────────────────────
 export async function handleAttendance(req, res) {
   // ── POST ─────────────────────────────────────
-  if (req.method === "POST") {
+  // if (req.method === "POST") {
+  //   const body = req.body;
+  //   if (!body?.WORKER_ID || !body?.PROJECT_ID || !body?.ENTRY_MODE || !body?.CALC_BASIS) {
+  //     return res.status(400).json({
+  //       success: false,
+  //       message: "WORKER_ID, PROJECT_ID, ENTRY_MODE, and CALC_BASIS are required.",
+  //     });
+  //   }
+
+  //   const ATTENDANCE_ID = await insertAttendance(body);
+  //   return res.status(201).json({ 
+  //     success: true, 
+  //     message: "Attendance recorded successfully.", 
+  //     ATTENDANCE_ID 
+  //   });
+  // }
+if (req.method === "POST") {
     const body = req.body;
-    if (!body?.WORKER_ID || !body?.PROJECT_ID || !body?.ENTRY_MODE || !body?.CALC_BASIS) {
+
+    if (!body?.WORKER_ID || !body?.PROJECT_ID || !body?.CALC_BASIS) {
       return res.status(400).json({
         success: false,
-        message: "WORKER_ID, PROJECT_ID, ENTRY_MODE, and CALC_BASIS are required.",
+        message: "WORKER_ID, PROJECT_ID, and CALC_BASIS are required.",
+      });
+    }
+
+    if (body.CALC_BASIS === "HOUR" && !body?.ENTRY_MODE) {
+      return res.status(400).json({
+        success: false,
+        message: "ENTRY_MODE is required when CALC_BASIS is 'HOUR'.",
       });
     }
 
@@ -27,8 +51,7 @@ export async function handleAttendance(req, res) {
       message: "Attendance recorded successfully.", 
       ATTENDANCE_ID 
     });
-  }
-
+}
   // ── GET ──────────────────────────────────────
   if (req.method === "GET") {
     const data = await searchAttendance(req.query);
