@@ -13,26 +13,56 @@ export async function setWorkerRate(data) {
     const rateHour = data.RATE_PER_HOUR != null ? Number(data.RATE_PER_HOUR) : null;
     const rateDay = data.RATE_PER_DAY != null ? Number(data.RATE_PER_DAY) : null;
 
-    // 1️⃣ Find the worker's current open rate (EFFECTIVE_TO IS NULL)
-    const openRateRes = await connection.execute(
-      `SELECT RATE_ID 
-       FROM PM.PM_WORKER_RATE_HISTORY 
-       WHERE WORKER_ID = :wid AND EFFECTIVE_TO IS NULL`,
-      { wid: workerId },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    // // 1️⃣ Find the worker's current open rate (EFFECTIVE_TO IS NULL)
+    // const openRateRes = await connection.execute(
+    //   `SELECT RATE_ID 
+    //    FROM PM.PM_WORKER_RATE_HISTORY 
+    //    WHERE WORKER_ID = :wid AND EFFECTIVE_TO IS NULL`,
+    //   { wid: workerId },
+    //   { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    // );
 
-    // 2️⃣ If an open rate exists, close it by setting EFFECTIVE_TO to (new start date - 1 day)
-    if (openRateRes.rows?.length > 0) {
-      const oldRateId = openRateRes.rows[0].RATE_ID;
-      await connection.execute(
-        `UPDATE PM.PM_WORKER_RATE_HISTORY 
-         SET EFFECTIVE_TO = :eff_from - 1 
-         WHERE RATE_ID = :rid`,
-        { eff_from: effFrom, rid: oldRateId },
-        { autoCommit: false }
-      );
-    }
+    // // 2️⃣ If an open rate exists, close it by setting EFFECTIVE_TO to (new start date - 1 day)
+    // if (openRateRes.rows?.length > 0) {
+    //   const oldRateId = openRateRes.rows[0].RATE_ID;
+    //   await connection.execute(
+    //     `UPDATE PM.PM_WORKER_RATE_HISTORY 
+    //      SET EFFECTIVE_TO = :eff_from - 1 
+    //      WHERE RATE_ID = :rid`,
+    //     { eff_from: effFrom, rid: oldRateId },
+    //     { autoCommit: false }
+    //   );
+    // }
+
+    // 1️⃣ Find the worker's current open rate
+const openRateRes = await connection.execute(
+  `SELECT RATE_ID, EFFECTIVE_FROM
+   FROM PM.PM_WORKER_RATE_HISTORY 
+   WHERE WORKER_ID = :wid AND EFFECTIVE_TO IS NULL`,
+  { wid: workerId },
+  { outFormat: oracledb.OUT_FORMAT_OBJECT }
+);
+
+if (openRateRes.rows?.length > 0) {
+  const oldRate = openRateRes.rows[0];
+
+  // 🚫 block backdating before/on the current open rate's start
+  if (effFrom <= new Date(oldRate.EFFECTIVE_FROM)) {
+    const err = new Error(
+      `New effective date must be after ${oldRate.EFFECTIVE_FROM.toISOString().split("T")[0]} (current rate's start date).`
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
+  await connection.execute(
+    `UPDATE PM.PM_WORKER_RATE_HISTORY 
+     SET EFFECTIVE_TO = :eff_from - 1 
+     WHERE RATE_ID = :rid`,
+    { eff_from: effFrom, rid: oldRate.RATE_ID },
+    { autoCommit: false }
+  );
+}
 
     // 3️⃣ Insert the new open-ended rate row
     const insertRes = await connection.execute(
@@ -57,6 +87,75 @@ export async function setWorkerRate(data) {
     
     await connection.commit();
     return newRateId;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+
+// ─────────────────────────────────────────────
+// DELETE CURRENT (OPEN) WORKER RATE
+// Reopens the previous rate row, if one exists
+// ─────────────────────────────────────────────
+export async function deleteCurrentWorkerRate(worker_id) {
+  const connection = await getConnection();
+  try {
+    const workerId = Number(worker_id);
+
+    // 1️⃣ Find the current open rate row
+    const openRateRes = await connection.execute(
+      `SELECT RATE_ID 
+       FROM PM.PM_WORKER_RATE_HISTORY 
+       WHERE WORKER_ID = :wid AND EFFECTIVE_TO IS NULL`,
+      { wid: workerId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    if (!openRateRes.rows?.length) {
+      const err = new Error(`No current active rate found for worker ID ${workerId}.`);
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const openRateId = openRateRes.rows[0].RATE_ID;
+
+    // 2️⃣ Delete the open row
+    await connection.execute(
+      `DELETE FROM PM.PM_WORKER_RATE_HISTORY WHERE RATE_ID = :rid`,
+      { rid: openRateId },
+      { autoCommit: false }
+    );
+
+    // 3️⃣ Find the previous row (latest EFFECTIVE_TO) for this worker, if any
+    const prevRateRes = await connection.execute(
+      `SELECT RATE_ID
+       FROM PM.PM_WORKER_RATE_HISTORY
+       WHERE WORKER_ID = :wid AND EFFECTIVE_TO IS NOT NULL
+       ORDER BY EFFECTIVE_TO DESC
+       FETCH FIRST 1 ROW ONLY`,
+      { wid: workerId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    let reopenedRateId = null;
+
+    // 4️⃣ Reopen it, if it exists
+    if (prevRateRes.rows?.length > 0) {
+      reopenedRateId = prevRateRes.rows[0].RATE_ID;
+      await connection.execute(
+        `UPDATE PM.PM_WORKER_RATE_HISTORY 
+         SET EFFECTIVE_TO = NULL 
+         WHERE RATE_ID = :rid`,
+        { rid: reopenedRateId },
+        { autoCommit: false }
+      );
+    }
+
+    await connection.commit();
+    return { deletedRateId: openRateId, reopenedRateId };
   } catch (err) {
     await connection.rollback();
     throw err;

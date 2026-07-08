@@ -355,3 +355,33 @@ export async function getPayrollReport(workerId, fromDate, toDate) {
     await connection.close();
   }
 }
+
+
+
+// ─────────────────────────────────────────────
+// GET SINGLE ATTENDANCE BY ID
+// ─────────────────────────────────────────────
+export async function getAttendanceById(attendance_id) {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT 
+        ATTENDANCE_ID, WORKER_ID, PROJECT_ID,
+        TO_CHAR(ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
+        ENTRY_MODE, START_TIME, END_TIME, CALC_BASIS,
+        HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY,
+        TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
+      FROM PM.PM_WORKER_ATTENDANCE
+      WHERE ATTENDANCE_ID = :id`;
+
+    const result = await connection.execute(
+      sql,
+      { id: Number(attendance_id) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+
+    return result.rows?.[0] || null;
+  } finally {
+    await connection.close();
+  }
+}
