@@ -33,6 +33,7 @@ import overviewRoutes from "./modules/overview/route.js";
 import workerRoutes from "./modules/worker/route.js";
 import workerRateRoutes from "./modules/worker-rate/route.js";
 import workerAttendanceRoutes from "./modules/worker-attendance/route.js";
+import workerAttendanceReportRoutes from "./modules/worker-attendance/report.route.js";
 
 const app = express();
 
@@ -104,7 +105,7 @@ app.use("/api/overview", overviewRoutes);
 app.use("/api/worker", workerRoutes);
 app.use("/api/worker-rate", workerRateRoutes);
 app.use("/api/worker-attendance", workerAttendanceRoutes);
-
+app.use("/api/worker-attendance", workerAttendanceReportRoutes);
 app.use(errorMiddleware);
 
 export default app;
