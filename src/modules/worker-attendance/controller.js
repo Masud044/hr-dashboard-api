@@ -5,6 +5,7 @@ import {
   updateAttendance,
   deleteAttendance,
   getPayrollReport,
+  getAttendanceById,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -131,4 +132,31 @@ export async function handlePayrollReport(req, res) {
     count: data.length,
     data,
   });
+}
+
+
+// ─────────────────────────────────────────────
+// GET SINGLE ATTENDANCE HANDLER
+// GET /worker-attendance/:id
+// ─────────────────────────────────────────────
+export async function handleGetAttendanceById(req, res) {
+  const attendance_id = Number(req.params.id || 0);
+
+  if (!attendance_id || attendance_id <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid attendance ID is required.",
+    });
+  }
+
+  const data = await getAttendanceById(attendance_id);
+
+  if (!data) {
+    return res.status(404).json({
+      success: false,
+      message: `Attendance with ID ${attendance_id} not found.`,
+    });
+  }
+
+  return res.json({ success: true, data });
 }

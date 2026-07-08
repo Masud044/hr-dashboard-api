@@ -3,6 +3,7 @@ import {
   setWorkerRate,
   getWorkerRateHistory,
   getCurrentWorkerRate,
+  deleteCurrentWorkerRate,
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -84,5 +85,30 @@ export async function handleGetCurrentRate(req, res) {
   return res.json({ 
     success: true, 
     data 
+  });
+}
+
+
+
+// ─────────────────────────────────────────────
+// DELETE CURRENT RATE HANDLER
+// DELETE /worker-rate/current?worker_id=X
+// ─────────────────────────────────────────────
+export async function handleDeleteCurrentRate(req, res) {
+  const worker_id = Number(req.query.worker_id || 0);
+
+  if (!worker_id) {
+    return res.status(400).json({
+      success: false,
+      message: "worker_id query parameter is required.",
+    });
+  }
+
+  const result = await deleteCurrentWorkerRate(worker_id);
+
+  return res.json({
+    success: true,
+    message: "Current rate deleted successfully.",
+    ...result,
   });
 }

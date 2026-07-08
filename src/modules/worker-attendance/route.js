@@ -1,7 +1,7 @@
 // src/modules/worker-attendance/route.js
 import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { handleAttendance, handlePayrollReport } from "./controller.js";
+import { handleAttendance, handlePayrollReport, handleGetAttendanceById } from "./controller.js";
 
 const router = Router();
 
@@ -11,5 +11,6 @@ router.put("/",         asyncHandler(handleAttendance));
 router.delete("/:id",   asyncHandler(handleAttendance));
 
 router.get("/payroll",  asyncHandler(handlePayrollReport));
+router.get("/:id",      asyncHandler(handleGetAttendanceById));
 
 export default router;
