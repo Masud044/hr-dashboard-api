@@ -408,7 +408,7 @@ export async function getWorkerCostsByProject(project_id) {
         ON a.WORKER_ID = r.WORKER_ID
         AND a.ATTENDANCE_DATE BETWEEN r.EFFECTIVE_FROM AND NVL(r.EFFECTIVE_TO, a.ATTENDANCE_DATE)
       WHERE a.PROJECT_ID = :pid
-      ORDER BY a.ATTENDANCE_DATE ASC, w.WORKER_NAME ASC`;
+      ORDER BY a.ATTENDANCE_DATE DESC, w.WORKER_NAME ASC`;
 
     const result = await connection.execute(
       sql, { pid: Number(project_id) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
