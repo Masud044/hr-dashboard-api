@@ -1040,6 +1040,7 @@ export async function getMainInvoiceFile(txnId) {
 // }
 
 
+
 // export async function getProjectReport(pId) {
 //   const result = await poolExecute(
 //     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
@@ -1053,12 +1054,27 @@ export async function getMainInvoiceFile(txnId) {
 //      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
 //     { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
 //   );
-//   return result.rows || [];
+//   const transactions = result.rows || [];
+
+//   // ── NEW: worker attendance/cost rows for this project ──
+//   const workerLogs = await getWorkerCostsByProject(pId);
+
+//   const workerTotals = workerLogs.reduce(
+//     (acc, r) => {
+//       acc.totalHours += Number(r.HOURS_WORKED) || 0;
+//       acc.totalDays  += Number(r.DAYS_WORKED)  || 0;
+//       acc.totalAmount += Number(r.AMOUNT) || 0;
+//       return acc;
+//     },
+//     { totalHours: 0, totalDays: 0, totalAmount: 0 }
+//   );
+
+//   return { transactions, workerLogs, workerTotals };
 // }
 export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
-            m.CATEGORY, m.MATCHED_ADDRESS, m.CONTRACTOR_NAME, m.INVOICE_NO,
+            m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE,
             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
      FROM PM.PM_STATEMENT_MAIN m
@@ -1070,7 +1086,6 @@ export async function getProjectReport(pId) {
   );
   const transactions = result.rows || [];
 
-  // ── NEW: worker attendance/cost rows for this project ──
   const workerLogs = await getWorkerCostsByProject(pId);
 
   const workerTotals = workerLogs.reduce(
