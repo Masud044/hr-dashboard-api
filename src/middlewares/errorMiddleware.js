@@ -1,3 +1,4 @@
+// src\middlewares\errorMiddleware.js
 export function errorMiddleware(error, req, res, next) {
   const statusCode = error.statusCode || 500;
   const payload = error.payload || {

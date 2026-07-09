@@ -101,7 +101,9 @@ export async function insertAttendance(data) {
   try {
     const { hoursWorked, daysWorked, startTime, endTime } = validateAndPrepare(data);
     
-    const attendanceDate = data.ATTENDANCE_DATE ? new Date(data.ATTENDANCE_DATE) : new Date();
+    const attendanceDate = data.ATTENDANCE_DATE
+  ? new Date(data.ATTENDANCE_DATE)
+  : new Date(new Date().toDateString()); // strip time, store as midnight
 
     const result = await connection.execute(
       `INSERT INTO PM.PM_WORKER_ATTENDANCE
@@ -336,7 +338,7 @@ export async function getPayrollReport(workerId, fromDate, toDate) {
         ON a.WORKER_ID = r.WORKER_ID 
         AND a.ATTENDANCE_DATE BETWEEN r.EFFECTIVE_FROM AND NVL(r.EFFECTIVE_TO, a.ATTENDANCE_DATE)
       WHERE a.WORKER_ID = :wid
-        AND a.ATTENDANCE_DATE BETWEEN TRUNC(:from_date) AND TRUNC(:to_date)
+        AND TRUNC(a.ATTENDANCE_DATE) BETWEEN TRUNC(:from_date) AND TRUNC(:to_date)
       ORDER BY a.ATTENDANCE_DATE ASC, a.ATTENDANCE_ID ASC
     `;
 
@@ -381,6 +383,37 @@ export async function getAttendanceById(attendance_id) {
     );
 
     return result.rows?.[0] || null;
+  } finally {
+    await connection.close();
+  }
+}
+
+
+export async function getWorkerCostsByProject(project_id) {
+  const connection = await getConnection();
+  try {
+    const sql = `
+      SELECT
+        a.ATTENDANCE_ID, a.WORKER_ID, w.WORKER_NAME,
+        TO_CHAR(a.ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
+        a.CALC_BASIS, a.HOURS_WORKED, a.DAYS_WORKED,
+        r.RATE_PER_HOUR, r.RATE_PER_DAY,
+        CASE
+          WHEN a.CALC_BASIS = 'HOUR' THEN a.HOURS_WORKED * r.RATE_PER_HOUR
+          WHEN a.CALC_BASIS = 'DAY'  THEN a.DAYS_WORKED  * r.RATE_PER_DAY
+        END AS AMOUNT
+      FROM PM.PM_WORKER_ATTENDANCE a
+      JOIN PM.PM_WORKER w ON w.WORKER_ID = a.WORKER_ID
+      LEFT JOIN PM.PM_WORKER_RATE_HISTORY r
+        ON a.WORKER_ID = r.WORKER_ID
+        AND a.ATTENDANCE_DATE BETWEEN r.EFFECTIVE_FROM AND NVL(r.EFFECTIVE_TO, a.ATTENDANCE_DATE)
+      WHERE a.PROJECT_ID = :pid
+      ORDER BY a.ATTENDANCE_DATE ASC, w.WORKER_NAME ASC`;
+
+    const result = await connection.execute(
+      sql, { pid: Number(project_id) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return result.rows || [];
   } finally {
     await connection.close();
   }
