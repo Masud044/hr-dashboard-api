@@ -76,6 +76,19 @@ router.get('/project-report/:pId',
   asyncHandler((req, res) => { req.params.action = 'getProjectReport'; return statementHandler(req, res); })
 );
 
+router.put('/main/row',
+  asyncHandler((req, res) => { req.params.action = 'updateMainRow'; return statementHandler(req, res); })
+);
+
+router.post('/main/:txnId/invoice',
+  upload.single('invoiceFile'),
+  asyncHandler((req, res) => { req.params.action = 'uploadMainInvoice'; return statementHandler(req, res); })
+);
+
+router.delete('/main/:txnId/invoice',
+  asyncHandler((req, res) => { req.params.action = 'deleteMainInvoice'; return statementHandler(req, res); })
+);
+
 
 
 export default router;

@@ -1,6 +1,7 @@
 
 // src\modules\project-statement\service.js
 import { poolExecute, oracledb, getConnection } from '../../config/db.js';
+import { getWorkerCostsByProject } from '../worker-attendance/service.js';
 
 const PLACE_KEYWORDS = [
   'bunnings', '7-eleven', 'ebay', 'amazon', 'amznprime',
@@ -586,6 +587,62 @@ export async function getAllContractors() {
   return result.rows || [];
 }
 
+// ── Approved Records (PM_STATEMENT_MAIN) inline edit — mirrors updateStagingRow but targets TXN_ID ──
+export async function updateMainRow(txnId, updates) {
+  const fields = [];
+  const binds  = { txnId };
+
+  if (updates.pId !== undefined) {
+    fields.push('P_ID = :pId', 'PROJECT_NAME = :projectName');
+    binds.pId = updates.pId || null;
+    binds.projectName = updates.projectName || null;
+  }
+  if (updates.contractorId !== undefined) {
+    fields.push('CONTRACTOR_ID = :contractorId', 'CONTRACTOR_NAME = :contractorName');
+    binds.contractorId = updates.contractorId || null;
+    binds.contractorName = updates.contractorName || null;
+  }
+  if (updates.invoiceNo !== undefined) { fields.push('INVOICE_NO = :invoiceNo'); binds.invoiceNo = updates.invoiceNo || null; }
+  if (updates.remarks !== undefined)   { fields.push('REMARKS = :remarks');     binds.remarks = updates.remarks || null; }
+  if (updates.category !== undefined)  { fields.push('CATEGORY = :category');   binds.category = updates.category || null; }
+
+  if (fields.length === 0) return { updated: false };
+
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_MAIN SET ${fields.join(', ')} WHERE TXN_ID = :txnId`,
+    binds, { autoCommit: true }
+  );
+  return { updated: true };
+}
+
+export async function uploadMainInvoiceFile(txnId, file) {
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_MAIN
+     SET INVOICE_FILE = :fileData, INVOICE_FILE_NAME = :fileName,
+         INVOICE_FILE_TYPE = :fileType, INVOICE_FILE_SIZE = :fileSize
+     WHERE TXN_ID = :txnId`,
+    {
+      txnId,
+      fileData: { val: file.buffer, type: oracledb.BLOB },
+      fileName: file.originalname,
+      fileType: file.mimetype,
+      fileSize: file.size
+    }, { autoCommit: true }
+  );
+  return { uploaded: true };
+}
+
+export async function deleteMainInvoiceFile(txnId) {
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_MAIN
+     SET INVOICE_FILE = NULL, INVOICE_FILE_NAME = NULL,
+         INVOICE_FILE_TYPE = NULL, INVOICE_FILE_SIZE = NULL
+     WHERE TXN_ID = :txnId`,
+    { txnId }, { autoCommit: true }
+  );
+  return { deleted: true };
+}
+
 export async function updateStagingRow(stagingId, updates) {
   const fields = [];
   const binds  = { stagingId };
@@ -983,6 +1040,21 @@ export async function getMainInvoiceFile(txnId) {
 // }
 
 
+// export async function getProjectReport(pId) {
+//   const result = await poolExecute(
+//     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
+//             m.CATEGORY, m.MATCHED_ADDRESS, m.CONTRACTOR_NAME, m.INVOICE_NO,
+//             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE,
+//             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
+//      FROM PM.PM_STATEMENT_MAIN m
+//      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
+//      LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
+//      WHERE m.P_ID = :pId
+//      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
+//     { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//   );
+//   return result.rows || [];
+// }
 export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
@@ -996,9 +1068,23 @@ export async function getProjectReport(pId) {
      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
     { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
-  return result.rows || [];
-}
+  const transactions = result.rows || [];
 
+  // ── NEW: worker attendance/cost rows for this project ──
+  const workerLogs = await getWorkerCostsByProject(pId);
+
+  const workerTotals = workerLogs.reduce(
+    (acc, r) => {
+      acc.totalHours += Number(r.HOURS_WORKED) || 0;
+      acc.totalDays  += Number(r.DAYS_WORKED)  || 0;
+      acc.totalAmount += Number(r.AMOUNT) || 0;
+      return acc;
+    },
+    { totalHours: 0, totalDays: 0, totalAmount: 0 }
+  );
+
+  return { transactions, workerLogs, workerTotals };
+}
 
 
 export async function disapproveTransaction(txnId) {
