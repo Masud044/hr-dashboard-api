@@ -59,7 +59,8 @@ export async function searchWorker(worker_id) {
       binds.worker_id_bv = worker_id;
     }
 
-    sql += " ORDER BY WORKER_ID";
+    // sql += " ORDER BY WORKER_ID";
+    sql += " ORDER BY WORKER_NAME ASC";
 
     const result = await connection.execute(sql, binds, {
       outFormat: oracledb.OUT_FORMAT_OBJECT,
