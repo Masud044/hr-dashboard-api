@@ -89,6 +89,36 @@ router.delete('/main/:txnId/invoice',
   asyncHandler((req, res) => { req.params.action = 'deleteMainInvoice'; return statementHandler(req, res); })
 );
 
+// ── Invoice group CRUD (staging/main parent invoices) ──
 
+router.get('/:parentType/:parentId/invoices',
+  asyncHandler((req, res) => { req.params.action = 'getInvoices'; return statementHandler(req, res); })
+);
+
+router.post('/:parentType/:parentId/invoices',
+  upload.array('files'),
+  asyncHandler((req, res) => { req.params.action = 'addInvoice'; return statementHandler(req, res); })
+);
+
+router.delete('/invoices/:invoiceId',
+  asyncHandler((req, res) => { req.params.action = 'deleteInvoiceGroup'; return statementHandler(req, res); })
+);
+
+// ── Individual file management within an invoice group ──
+// NOTE: these must be declared before any conflicting generic routes,
+// and use paths that match what InvoiceSheet.jsx actually calls.
+
+router.post('/invoices/:invoiceId/files',
+  upload.single('file'),
+  asyncHandler((req, res) => { req.params.action = 'addFileToInvoice'; return statementHandler(req, res); })
+);
+
+router.get('/invoices/files/:fileId',
+  asyncHandler((req, res) => { req.params.action = 'getInvoiceFileById'; return statementHandler(req, res); })
+);
+
+router.delete('/invoices/files/:fileId',
+  asyncHandler((req, res) => { req.params.action = 'deleteInvoiceFileRow'; return statementHandler(req, res); })
+);
 
 export default router;

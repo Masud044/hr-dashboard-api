@@ -838,42 +838,54 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
       binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
 
-    for (const row of stagingResult.rows || []) {
-      let debit = null, credit = null;
+   for (const row of stagingResult.rows || []) {
+  let debit = null, credit = null;
 
-      if (row.SOURCE_TYPE === 'NON_BANKING' && row.ENTRY_TYPE) {
-        if (row.ENTRY_TYPE === 'DEBIT') debit = Math.abs(Number(row.AMOUNT));
-        else credit = Math.abs(Number(row.AMOUNT));
-      } else {
-        const dc = deriveDebitCredit(row.AMOUNT);
-        debit = dc.debit;
-        credit = dc.credit;
-      }
+  if (row.SOURCE_TYPE === 'NON_BANKING' && row.ENTRY_TYPE) {
+    if (row.ENTRY_TYPE === 'DEBIT') debit = Math.abs(Number(row.AMOUNT));
+    else credit = Math.abs(Number(row.AMOUNT));
+  } else {
+    const dc = deriveDebitCredit(row.AMOUNT);
+    debit = dc.debit;
+    credit = dc.credit;
+  }
 
-      await conn.execute(
-        `INSERT INTO PM.PM_STATEMENT_MAIN
-          (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
-           CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-           INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-           SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
-         VALUES
-          (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
-           :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
-           :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
-           :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)`,
-        {
-          stagingId: row.STAGING_ID,
-          uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
-          txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
-          category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
-          contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
-          invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
-          invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
-          sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
-          debit, credit, approvedBy, userId: row.USER_ID
-        }
-      );
+  const insertResult = await conn.execute(
+    `INSERT INTO PM.PM_STATEMENT_MAIN
+      (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+       CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+       INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+       SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+     VALUES
+      (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+       :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
+       :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
+       :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)
+     RETURNING TXN_ID INTO :newTxnId`,
+    {
+      stagingId: row.STAGING_ID,
+      uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
+      txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
+      category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
+      contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
+      invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
+      invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
+      sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
+      debit, credit, approvedBy, userId: row.USER_ID,
+      newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
     }
+  );
+
+  const newTxnId = insertResult.outBinds.newTxnId[0];
+
+  // ── move any multi-invoices linked to this staging row over to the new MAIN row ──
+  await conn.execute(
+    `UPDATE PM.PM_STATEMENT_INVOICE
+     SET PARENT_TYPE = 'MAIN', PARENT_ID = :txnId
+     WHERE PARENT_TYPE = 'STAGING' AND PARENT_ID = :stagingId`,
+    { txnId: newTxnId, stagingId: row.STAGING_ID }
+  );
+}
 
     await conn.execute(
       `UPDATE PM.PM_STATEMENT_STAGING SET STATUS = 'APPROVED' WHERE STAGING_ID IN (${placeholders})`,
@@ -1150,6 +1162,147 @@ export async function disapproveTransaction(txnId) {
   } catch (err) {
     await conn.rollback();
     throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ── Multi-invoice support (PM_STATEMENT_INVOICE + PM_STATEMENT_INVOICE_FILE) ──
+
+// list invoices (with their files) for a given row
+export async function getInvoicesForParent(parentType, parentId) {
+  const invoicesResult = await poolExecute(
+    `SELECT INVOICE_ID, PARENT_TYPE, PARENT_ID, INVOICE_NO, CREATION_DATE
+     FROM PM.PM_STATEMENT_INVOICE
+     WHERE PARENT_TYPE = :parentType AND PARENT_ID = :parentId
+     ORDER BY CREATION_DATE DESC`,
+    { parentType, parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const invoices = invoicesResult.rows || [];
+  if (invoices.length === 0) return [];
+
+  const invoiceIds = invoices.map((inv) => inv.INVOICE_ID);
+  const placeholders = invoiceIds.map((_, i) => `:id${i}`).join(',');
+  const binds = {};
+  invoiceIds.forEach((id, i) => { binds[`id${i}`] = id; });
+
+  const filesResult = await poolExecute(
+    `SELECT FILE_ID, INVOICE_ID, FILE_NAME, FILE_TYPE, FILE_SIZE, CREATION_DATE
+     FROM PM.PM_STATEMENT_INVOICE_FILE
+     WHERE INVOICE_ID IN (${placeholders})
+     ORDER BY CREATION_DATE ASC`,
+    binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  const files = filesResult.rows || [];
+
+  return invoices.map((inv) => ({
+    ...inv,
+    files: files.filter((f) => f.INVOICE_ID === inv.INVOICE_ID),
+  }));
+}
+
+// create a new invoice (with invoice no) + its files, in one go
+export async function addInvoiceForParent(parentType, parentId, invoiceNo, filesArray, userId) {
+  const conn = await getConnection();
+  try {
+    const insertResult = await conn.execute(
+      `INSERT INTO PM.PM_STATEMENT_INVOICE (PARENT_TYPE, PARENT_ID, INVOICE_NO)
+       VALUES (:parentType, :parentId, :invoiceNo)
+       RETURNING INVOICE_ID INTO :newInvoiceId`,
+      {
+        parentType, parentId, invoiceNo: invoiceNo || null,
+        newInvoiceId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
+      }
+    );
+    const invoiceId = insertResult.outBinds.newInvoiceId[0];
+
+    for (const file of filesArray) {
+      await conn.execute(
+        `INSERT INTO PM.PM_STATEMENT_INVOICE_FILE
+          (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE)
+         VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize)`,
+        {
+          invoiceId,
+          fileData: { val: file.buffer, type: oracledb.BLOB },
+          fileName: file.originalname,
+          fileType: file.mimetype,
+          fileSize: file.size,
+        }
+      );
+    }
+
+    await conn.commit();
+    return { invoiceId, filesAdded: filesArray.length };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// add more files to an existing invoice
+export async function addFileToInvoice(invoiceId, file) {
+  await poolExecute(
+    `INSERT INTO PM.PM_STATEMENT_INVOICE_FILE
+      (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE)
+     VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize)`,
+    {
+      invoiceId,
+      fileData: { val: file.buffer, type: oracledb.BLOB },
+      fileName: file.originalname,
+      fileType: file.mimetype,
+      fileSize: file.size,
+    }, { autoCommit: true }
+  );
+  return { uploaded: true };
+}
+
+// delete a single file
+export async function deleteInvoiceFileRow(fileId) {
+  await poolExecute(
+    `DELETE FROM PM.PM_STATEMENT_INVOICE_FILE WHERE FILE_ID = :fileId`,
+    { fileId }, { autoCommit: true }
+  );
+  return { deleted: true };
+}
+
+// delete an entire invoice (and its files)
+export async function deleteInvoice(invoiceId) {
+  const conn = await getConnection();
+  try {
+    await conn.execute(
+      `DELETE FROM PM.PM_STATEMENT_INVOICE_FILE WHERE INVOICE_ID = :invoiceId`,
+      { invoiceId }
+    );
+    await conn.execute(
+      `DELETE FROM PM.PM_STATEMENT_INVOICE WHERE INVOICE_ID = :invoiceId`,
+      { invoiceId }
+    );
+    await conn.commit();
+    return { deleted: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// get a single file's binary content
+export async function getInvoiceFileById(fileId) {
+  const conn = await getConnection();
+  try {
+    const result = await conn.execute(
+      `SELECT FILE_DATA, FILE_NAME, FILE_TYPE
+       FROM PM.PM_STATEMENT_INVOICE_FILE WHERE FILE_ID = :fileId`,
+      { fileId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    const row = result.rows?.[0];
+    if (!row || !row.FILE_DATA) return null;
+    const buffer = await readLobToBuffer(row.FILE_DATA);
+    if (!buffer) return null;
+    return { buffer, fileName: row.FILE_NAME, fileType: row.FILE_TYPE };
   } finally {
     await conn.close();
   }
