@@ -19,7 +19,13 @@ import {
   getStagingStats,
   updateMainRow,
   uploadMainInvoiceFile,
-  deleteMainInvoiceFile, // <-- ADDED
+  deleteMainInvoiceFile,
+  getInvoicesForParent,
+  addInvoiceForParent,
+  addFileToInvoice,
+  deleteInvoiceFileRow,
+  deleteInvoice,
+  getInvoiceFileById,
 } from "./service.js";
 
 export async function statementHandler(req, res) {
@@ -72,21 +78,19 @@ export async function statementHandler(req, res) {
         page: req.query.page || null,
         pageSize: req.query.pageSize || null,
       };
-      const sortBy = req.query.sortBy || 'txnDate';
-const result = await getStagingFiltered(filters, pagination, sortBy);
+      const sortBy = req.query.sortBy || "txnDate";
+      const result = await getStagingFiltered(filters, pagination, sortBy);
       // const result = await getStagingFiltered(filters, pagination, sortBy);
 
       // backward-compatible: array when unpaginated, {rows,totalCount} when paginated
       if (Array.isArray(result)) {
         return res.status(200).json({ success: true, data: result });
       }
-      return res
-        .status(200)
-        .json({
-          success: true,
-          data: result.rows,
-          totalCount: result.totalCount,
-        });
+      return res.status(200).json({
+        success: true,
+        data: result.rows,
+        totalCount: result.totalCount,
+      });
     }
 
     // NEW: category breakdown for the stats bar
@@ -116,12 +120,10 @@ const result = await getStagingFiltered(filters, pagination, sortBy);
           .status(400)
           .json({ success: false, message: "stagingIds array is required." });
       const result = await approveAndMoveToMain(stagingIds, approvedBy);
-      return res
-        .status(200)
-        .json({
-          success: true,
-          message: `${result.moved} row(s) approved and moved to main.`,
-        });
+      return res.status(200).json({
+        success: true,
+        message: `${result.moved} row(s) approved and moved to main.`,
+      });
     }
 
     // ── NEW: Disapprove Case ──
@@ -132,13 +134,11 @@ const result = await getStagingFiltered(filters, pagination, sortBy);
           .status(400)
           .json({ success: false, message: "txnId is required." });
       const result = await disapproveTransaction(txnId);
-      return res
-        .status(200)
-        .json({
-          success: true,
-          message: "Transaction disapproved and moved back to staging.",
-          ...result,
-        });
+      return res.status(200).json({
+        success: true,
+        message: "Transaction disapproved and moved back to staging.",
+        ...result,
+      });
     }
 
     case "getLatestBatch": {
@@ -309,13 +309,11 @@ const result = await getStagingFiltered(filters, pagination, sortBy);
     case "insertNonBanking": {
       const userId = req.user?.userId || req.body.userId || null;
       const result = await insertNonBankingEntry(req.body, userId);
-      return res
-        .status(200)
-        .json({
-          success: true,
-          message: "Entry added to staging.",
-          batchId: result.batchId,
-        });
+      return res.status(200).json({
+        success: true,
+        message: "Entry added to staging.",
+        batchId: result.batchId,
+      });
     }
 
     // case "getProjectReport": {
@@ -327,12 +325,15 @@ const result = await getStagingFiltered(filters, pagination, sortBy);
     //   const rows = await getProjectReport(pId);
     //   return res.status(200).json({ success: true, data: rows });
     // }
-    case 'getProjectReport': {
-  const { pId } = req.params;
-  if (!pId) return res.status(400).json({ success: false, message: 'pId is required.' });
-  const report = await getProjectReport(pId);   // now { transactions, workerLogs, workerTotals }
-  return res.status(200).json({ success: true, data: report });
-}
+    case "getProjectReport": {
+      const { pId } = req.params;
+      if (!pId)
+        return res
+          .status(400)
+          .json({ success: false, message: "pId is required." });
+      const report = await getProjectReport(pId); // now { transactions, workerLogs, workerTotals }
+      return res.status(200).json({ success: true, data: report });
+    }
 
     case "getMain": {
       const filters = {
@@ -357,14 +358,67 @@ const result = await getStagingFiltered(filters, pagination, sortBy);
       if (Array.isArray(result)) {
         return res.status(200).json({ success: true, data: result });
       }
-      return res
-        .status(200)
-        .json({
-          success: true,
-          data: result.rows,
-          totalCount: result.totalCount,
-        });
+      return res.status(200).json({
+        success: true,
+        data: result.rows,
+        totalCount: result.totalCount,
+      });
     }
+    case "getInvoices": {
+  const { parentType, parentId } = req.params;
+  if (!parentType || !parentId)
+    return res.status(400).json({ success: false, message: "parentType and parentId are required." });
+  const rows = await getInvoicesForParent(parentType.toUpperCase(), parentId);
+  return res.status(200).json({ success: true, data: rows });
+}
+
+case "addInvoice": {
+  const { parentType, parentId } = req.params;
+  const { invoiceNo } = req.body;
+  if (!parentType || !parentId)
+    return res.status(400).json({ success: false, message: "parentType and parentId are required." });
+  if (!req.files || req.files.length === 0)
+    return res.status(400).json({ success: false, message: "At least one file is required." });
+  const userId = req.user?.userId || req.body.userId || null;
+  const result = await addInvoiceForParent(parentType.toUpperCase(), parentId, invoiceNo, req.files, userId);
+  return res.status(200).json({ success: true, message: "Invoice added.", ...result });
+}
+
+case "addFileToInvoice": {
+  const { invoiceId } = req.params;
+  if (!invoiceId)
+    return res.status(400).json({ success: false, message: "invoiceId is required." });
+  if (!req.file)
+    return res.status(400).json({ success: false, message: "File is required." });
+  const result = await addFileToInvoice(invoiceId, req.file);
+  return res.status(200).json({ success: true, message: "File added.", ...result });
+}
+
+case "deleteInvoiceFileRow": {
+  const { fileId } = req.params;
+  if (!fileId)
+    return res.status(400).json({ success: false, message: "fileId is required." });
+  const result = await deleteInvoiceFileRow(fileId);
+  return res.status(200).json({ success: true, message: "File deleted.", ...result });
+}
+
+case "deleteInvoiceGroup": {                 // ← renamed from "deleteInvoice"
+  const { invoiceId } = req.params;
+  if (!invoiceId)
+    return res.status(400).json({ success: false, message: "invoiceId is required." });
+  const result = await deleteInvoice(invoiceId);
+  return res.status(200).json({ success: true, message: "Invoice deleted.", ...result });
+}
+
+case "getInvoiceFileById": {
+  const { fileId } = req.params;
+  const file = await getInvoiceFileById(fileId);
+  if (!file)
+    return res.status(404).json({ success: false, message: "No file found." });
+  res.setHeader("Content-Type", file.fileType || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${file.fileName || "invoice"}"`);
+  return res.send(file.buffer);
+}
     default:
       return res
         .status(400)
