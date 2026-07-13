@@ -72,7 +72,9 @@ export async function statementHandler(req, res) {
         page: req.query.page || null,
         pageSize: req.query.pageSize || null,
       };
-      const result = await getStagingFiltered(filters, pagination);
+      const sortBy = req.query.sortBy || 'txnDate';
+const result = await getStagingFiltered(filters, pagination, sortBy);
+      // const result = await getStagingFiltered(filters, pagination, sortBy);
 
       // backward-compatible: array when unpaginated, {rows,totalCount} when paginated
       if (Array.isArray(result)) {

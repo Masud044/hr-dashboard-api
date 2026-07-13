@@ -433,15 +433,27 @@ export async function getStagingByBatch(batchId) {
 
 // ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
 // ── এখন optional pagination + stats সহ: page/pageSize না দিলে আগের মতোই সব rows রিটার্ন করবে ──
-export async function getStagingFiltered(filters = {}, pagination = {}) {
-  const { where, binds } = buildStagingWhere(filters);
+export async function getStagingFiltered(filters = {}, pagination = {}, sortBy = 'txnDate') {
+  // const { where, binds } = buildStagingWhere(filters);
+
+  // let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
+  //                   AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
+  //                   CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+  //                   INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, STATUS
+  //            FROM PM.PM_STATEMENT_STAGING ${where}
+  //            ORDER BY TXN_DATE DESC, STAGING_ID DESC`;
+   const { where, binds } = buildStagingWhere(filters);
+
+  const orderClause = sortBy === 'recent'
+    ? 'CREATION_DATE DESC, STAGING_ID DESC'
+    : 'TXN_DATE DESC, STAGING_ID DESC';
 
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
                     CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
                     INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, STATUS
              FROM PM.PM_STATEMENT_STAGING ${where}
-             ORDER BY TXN_DATE DESC, STAGING_ID DESC`;
+             ORDER BY ${orderClause}`;
 
   const { page, pageSize } = pagination;
   const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
