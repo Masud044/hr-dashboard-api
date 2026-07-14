@@ -154,6 +154,13 @@ export async function searchAttendance(filters) {
       whereClauses.push("WORKER_ID = :worker_id");
       binds.worker_id = Number(filters.WORKER_ID);
     }
+    if (filters.WORKER_NAME) {
+      whereClauses.push(`WORKER_ID IN (
+        SELECT WORKER_ID FROM PM.PM_WORKER
+        WHERE UPPER(WORKER_NAME) LIKE UPPER(:worker_name)
+      )`);
+      binds.worker_name = `%${filters.WORKER_NAME}%`;
+    }
     if (filters.PROJECT_ID) {
       whereClauses.push("PROJECT_ID = :project_id");
       binds.project_id = Number(filters.PROJECT_ID);
@@ -166,6 +173,7 @@ export async function searchAttendance(filters) {
       whereClauses.push("ATTENDANCE_DATE <= TRUNC(:to_date)");
       binds.to_date = new Date(filters.TO_DATE);
     }
+    // ...rest unchanged
 
     const whereStr = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
