@@ -1170,13 +1170,31 @@ export async function disapproveTransaction(txnId) {
 // ── Multi-invoice support (PM_STATEMENT_INVOICE + PM_STATEMENT_INVOICE_FILE) ──
 
 // list invoices (with their files) for a given row
+
+
 // export async function getInvoicesForParent(parentType, parentId) {
+//   let effectiveType = parentType;
+//   let effectiveId = parentId;
+
+//   if (parentType === 'MAIN') {
+//     const mainResult = await poolExecute(
+//       `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+//       { txnId: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//     );
+//     const stagingId = mainResult.rows?.[0]?.STAGING_ID;
+//     // legacy MAIN rows with no STAGING_ID keep their invoices parented to MAIN
+//     if (stagingId) {
+//       effectiveType = 'STAGING';
+//       effectiveId = stagingId;
+//     }
+//   }
+
 //   const invoicesResult = await poolExecute(
 //     `SELECT INVOICE_ID, PARENT_TYPE, PARENT_ID, INVOICE_NO, CREATION_DATE
 //      FROM PM.PM_STATEMENT_INVOICE
 //      WHERE PARENT_TYPE = :parentType AND PARENT_ID = :parentId
 //      ORDER BY CREATION_DATE DESC`,
-//     { parentType, parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//     { parentType: effectiveType, parentId: effectiveId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
 //   );
 //   const invoices = invoicesResult.rows || [];
 //   if (invoices.length === 0) return [];
@@ -1200,7 +1218,6 @@ export async function disapproveTransaction(txnId) {
 //     files: files.filter((f) => f.INVOICE_ID === inv.INVOICE_ID),
 //   }));
 // }
-
 export async function getInvoicesForParent(parentType, parentId) {
   let effectiveType = parentType;
   let effectiveId = parentId;
@@ -1219,10 +1236,12 @@ export async function getInvoicesForParent(parentType, parentId) {
   }
 
   const invoicesResult = await poolExecute(
-    `SELECT INVOICE_ID, PARENT_TYPE, PARENT_ID, INVOICE_NO, CREATION_DATE
-     FROM PM.PM_STATEMENT_INVOICE
-     WHERE PARENT_TYPE = :parentType AND PARENT_ID = :parentId
-     ORDER BY CREATION_DATE DESC`,
+    `SELECT i.INVOICE_ID, i.PARENT_TYPE, i.PARENT_ID, i.INVOICE_NO, i.CREATION_DATE,
+            i.CREATED_BY, cu.USERNAME AS CREATED_BY_NAME
+     FROM PM.PM_STATEMENT_INVOICE i
+     LEFT JOIN PM.USERS cu ON cu.ID = i.CREATED_BY
+     WHERE i.PARENT_TYPE = :parentType AND i.PARENT_ID = :parentId
+     ORDER BY i.CREATION_DATE DESC`,
     { parentType: effectiveType, parentId: effectiveId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   const invoices = invoicesResult.rows || [];
@@ -1234,10 +1253,12 @@ export async function getInvoicesForParent(parentType, parentId) {
   invoiceIds.forEach((id, i) => { binds[`id${i}`] = id; });
 
   const filesResult = await poolExecute(
-    `SELECT FILE_ID, INVOICE_ID, FILE_NAME, FILE_TYPE, FILE_SIZE, CREATION_DATE
-     FROM PM.PM_STATEMENT_INVOICE_FILE
-     WHERE INVOICE_ID IN (${placeholders})
-     ORDER BY CREATION_DATE ASC`,
+    `SELECT f.FILE_ID, f.INVOICE_ID, f.FILE_NAME, f.FILE_TYPE, f.FILE_SIZE, f.CREATION_DATE,
+            f.UPLOADED_BY, uu.USERNAME AS UPLOADED_BY_NAME
+     FROM PM.PM_STATEMENT_INVOICE_FILE f
+     LEFT JOIN PM.USERS uu ON uu.ID = f.UPLOADED_BY
+     WHERE f.INVOICE_ID IN (${placeholders})
+     ORDER BY f.CREATION_DATE ASC`,
     binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
   const files = filesResult.rows || [];
@@ -1247,9 +1268,25 @@ export async function getInvoicesForParent(parentType, parentId) {
     files: files.filter((f) => f.INVOICE_ID === inv.INVOICE_ID),
   }));
 }
-
 // create a new invoice (with invoice no) + its files, in one go
+
+
 // export async function addInvoiceForParent(parentType, parentId, invoiceNo, filesArray, userId) {
+//   let effectiveType = parentType;
+//   let effectiveId = parentId;
+
+//   if (parentType === 'MAIN') {
+//     const mainResult = await poolExecute(
+//       `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+//       { txnId: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+//     );
+//     const stagingId = mainResult.rows?.[0]?.STAGING_ID;
+//     if (stagingId) {
+//       effectiveType = 'STAGING';
+//       effectiveId = stagingId;
+//     }
+//   }
+
 //   const conn = await getConnection();
 //   try {
 //     const insertResult = await conn.execute(
@@ -1257,7 +1294,7 @@ export async function getInvoicesForParent(parentType, parentId) {
 //        VALUES (:parentType, :parentId, :invoiceNo)
 //        RETURNING INVOICE_ID INTO :newInvoiceId`,
 //       {
-//         parentType, parentId, invoiceNo: invoiceNo || null,
+//         parentType: effectiveType, parentId: effectiveId, invoiceNo: invoiceNo || null,
 //         newInvoiceId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
 //       }
 //     );
@@ -1307,11 +1344,12 @@ export async function addInvoiceForParent(parentType, parentId, invoiceNo, files
   const conn = await getConnection();
   try {
     const insertResult = await conn.execute(
-      `INSERT INTO PM.PM_STATEMENT_INVOICE (PARENT_TYPE, PARENT_ID, INVOICE_NO)
-       VALUES (:parentType, :parentId, :invoiceNo)
+      `INSERT INTO PM.PM_STATEMENT_INVOICE (PARENT_TYPE, PARENT_ID, INVOICE_NO, CREATED_BY)
+       VALUES (:parentType, :parentId, :invoiceNo, :userId)
        RETURNING INVOICE_ID INTO :newInvoiceId`,
       {
         parentType: effectiveType, parentId: effectiveId, invoiceNo: invoiceNo || null,
+        userId: userId || null,
         newInvoiceId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
       }
     );
@@ -1320,14 +1358,15 @@ export async function addInvoiceForParent(parentType, parentId, invoiceNo, files
     for (const file of filesArray) {
       await conn.execute(
         `INSERT INTO PM.PM_STATEMENT_INVOICE_FILE
-          (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE)
-         VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize)`,
+          (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE, UPLOADED_BY)
+         VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize, :userId)`,
         {
           invoiceId,
           fileData: { val: file.buffer, type: oracledb.BLOB },
           fileName: file.originalname,
           fileType: file.mimetype,
           fileSize: file.size,
+          userId: userId || null,
         }
       );
     }
@@ -1343,17 +1382,33 @@ export async function addInvoiceForParent(parentType, parentId, invoiceNo, files
 }
 
 // add more files to an existing invoice
-export async function addFileToInvoice(invoiceId, file) {
+// export async function addFileToInvoice(invoiceId, file) {
+//   await poolExecute(
+//     `INSERT INTO PM.PM_STATEMENT_INVOICE_FILE
+//       (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE)
+//      VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize)`,
+//     {
+//       invoiceId,
+//       fileData: { val: file.buffer, type: oracledb.BLOB },
+//       fileName: file.originalname,
+//       fileType: file.mimetype,
+//       fileSize: file.size,
+//     }, { autoCommit: true }
+//   );
+//   return { uploaded: true };
+// }
+export async function addFileToInvoice(invoiceId, file, userId) {
   await poolExecute(
     `INSERT INTO PM.PM_STATEMENT_INVOICE_FILE
-      (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE)
-     VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize)`,
+      (INVOICE_ID, FILE_DATA, FILE_NAME, FILE_TYPE, FILE_SIZE, UPLOADED_BY)
+     VALUES (:invoiceId, :fileData, :fileName, :fileType, :fileSize, :userId)`,
     {
       invoiceId,
       fileData: { val: file.buffer, type: oracledb.BLOB },
       fileName: file.originalname,
       fileType: file.mimetype,
       fileSize: file.size,
+      userId: userId || null,
     }, { autoCommit: true }
   );
   return { uploaded: true };
@@ -1407,4 +1462,29 @@ export async function getInvoiceFileById(fileId) {
   } finally {
     await conn.close();
   }
+}
+
+
+export async function getTransactionById(parentType, parentId) {
+  const type = String(parentType).toUpperCase();
+
+  if (type === 'STAGING') {
+    const result = await poolExecute(
+      `SELECT STAGING_ID, TXN_DATE, AMOUNT, DESCRIPTION
+       FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :id`,
+      { id: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return result.rows?.[0] || null;
+  }
+
+  if (type === 'MAIN') {
+    const result = await poolExecute(
+      `SELECT TXN_ID, TXN_DATE, AMOUNT, DESCRIPTION
+       FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :id`,
+      { id: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return result.rows?.[0] || null;
+  }
+
+  return null;
 }

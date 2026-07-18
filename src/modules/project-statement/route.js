@@ -90,7 +90,9 @@ router.delete('/main/:txnId/invoice',
 );
 
 // ── Invoice group CRUD (staging/main parent invoices) ──
-
+router.get('/:parentType/:parentId/transaction',
+  asyncHandler((req, res) => { req.params.action = 'getTransactionById'; return statementHandler(req, res); })
+);
 router.get('/:parentType/:parentId/invoices',
   asyncHandler((req, res) => { req.params.action = 'getInvoices'; return statementHandler(req, res); })
 );

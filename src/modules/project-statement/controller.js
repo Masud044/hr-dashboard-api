@@ -26,6 +26,7 @@ import {
   deleteInvoiceFileRow,
   deleteInvoice,
   getInvoiceFileById,
+  getTransactionById,
 } from "./service.js";
 
 export async function statementHandler(req, res) {
@@ -365,60 +366,111 @@ export async function statementHandler(req, res) {
       });
     }
     case "getInvoices": {
+      const { parentType, parentId } = req.params;
+      if (!parentType || !parentId)
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "parentType and parentId are required.",
+          });
+      const rows = await getInvoicesForParent(
+        parentType.toUpperCase(),
+        parentId,
+      );
+      return res.status(200).json({ success: true, data: rows });
+    }
+    case "getTransactionById": {
   const { parentType, parentId } = req.params;
   if (!parentType || !parentId)
     return res.status(400).json({ success: false, message: "parentType and parentId are required." });
-  const rows = await getInvoicesForParent(parentType.toUpperCase(), parentId);
-  return res.status(200).json({ success: true, data: rows });
+  const row = await getTransactionById(parentType, parentId);
+  if (!row)
+    return res.status(404).json({ success: false, message: "Transaction not found." });
+  return res.status(200).json({ success: true, data: row });
 }
 
-case "addInvoice": {
-  const { parentType, parentId } = req.params;
-  const { invoiceNo } = req.body;
-  if (!parentType || !parentId)
-    return res.status(400).json({ success: false, message: "parentType and parentId are required." });
-  if (!req.files || req.files.length === 0)
-    return res.status(400).json({ success: false, message: "At least one file is required." });
-  const userId = req.user?.userId || req.body.userId || null;
-  const result = await addInvoiceForParent(parentType.toUpperCase(), parentId, invoiceNo, req.files, userId);
-  return res.status(200).json({ success: true, message: "Invoice added.", ...result });
-}
+    case "addInvoice": {
+      const { parentType, parentId } = req.params;
+      const { invoiceNo } = req.body;
+      if (!parentType || !parentId)
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "parentType and parentId are required.",
+          });
+      if (!req.files || req.files.length === 0)
+        return res
+          .status(400)
+          .json({ success: false, message: "At least one file is required." });
+      // const userId = req.user?.userId || req.body.userId || null;
+      const userId = req.user?.id || req.body.userId || null;
+      const result = await addInvoiceForParent(
+        parentType.toUpperCase(),
+        parentId,
+        invoiceNo,
+        req.files,
+        userId,
+      );
+      return res
+        .status(200)
+        .json({ success: true, message: "Invoice added.", ...result });
+    }
 
-case "addFileToInvoice": {
+    case "addFileToInvoice": {
   const { invoiceId } = req.params;
   if (!invoiceId)
     return res.status(400).json({ success: false, message: "invoiceId is required." });
   if (!req.file)
     return res.status(400).json({ success: false, message: "File is required." });
-  const result = await addFileToInvoice(invoiceId, req.file);
+  const userId = req.user?.id || req.body.userId || null;
+  const result = await addFileToInvoice(invoiceId, req.file, userId);
   return res.status(200).json({ success: true, message: "File added.", ...result });
 }
 
-case "deleteInvoiceFileRow": {
-  const { fileId } = req.params;
-  if (!fileId)
-    return res.status(400).json({ success: false, message: "fileId is required." });
-  const result = await deleteInvoiceFileRow(fileId);
-  return res.status(200).json({ success: true, message: "File deleted.", ...result });
-}
+    case "deleteInvoiceFileRow": {
+      const { fileId } = req.params;
+      if (!fileId)
+        return res
+          .status(400)
+          .json({ success: false, message: "fileId is required." });
+      const result = await deleteInvoiceFileRow(fileId);
+      return res
+        .status(200)
+        .json({ success: true, message: "File deleted.", ...result });
+    }
 
-case "deleteInvoiceGroup": {                 // ← renamed from "deleteInvoice"
-  const { invoiceId } = req.params;
-  if (!invoiceId)
-    return res.status(400).json({ success: false, message: "invoiceId is required." });
-  const result = await deleteInvoice(invoiceId);
-  return res.status(200).json({ success: true, message: "Invoice deleted.", ...result });
-}
+    case "deleteInvoiceGroup": {
+      // ← renamed from "deleteInvoice"
+      const { invoiceId } = req.params;
+      if (!invoiceId)
+        return res
+          .status(400)
+          .json({ success: false, message: "invoiceId is required." });
+      const result = await deleteInvoice(invoiceId);
+      return res
+        .status(200)
+        .json({ success: true, message: "Invoice deleted.", ...result });
+    }
 
-case "getInvoiceFileById": {
-  const { fileId } = req.params;
-  const file = await getInvoiceFileById(fileId);
-  if (!file)
-    return res.status(404).json({ success: false, message: "No file found." });
-  res.setHeader("Content-Type", file.fileType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `inline; filename="${file.fileName || "invoice"}"`);
-  return res.send(file.buffer);
-}
+    case "getInvoiceFileById": {
+      const { fileId } = req.params;
+      const file = await getInvoiceFileById(fileId);
+      if (!file)
+        return res
+          .status(404)
+          .json({ success: false, message: "No file found." });
+      res.setHeader(
+        "Content-Type",
+        file.fileType || "application/octet-stream",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `inline; filename="${file.fileName || "invoice"}"`,
+      );
+      return res.send(file.buffer);
+    }
     default:
       return res
         .status(400)
