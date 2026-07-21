@@ -167,6 +167,7 @@ export async function statementHandler(req, res) {
         invoiceNo,
         remarks,
         category,
+        paymentBy,          // ← add here
       } = req.body;
       if (!stagingId)
         return res
@@ -180,6 +181,7 @@ export async function statementHandler(req, res) {
         invoiceNo,
         remarks,
         category,
+        paymentBy,          // ← add here
       });
       return res.status(200).json({ success: true, ...result });
     }
@@ -194,6 +196,7 @@ export async function statementHandler(req, res) {
         invoiceNo,
         remarks,
         category,
+        paymentBy,          // ← add here
       } = req.body;
       if (!txnId)
         return res
@@ -207,6 +210,7 @@ export async function statementHandler(req, res) {
         invoiceNo,
         remarks,
         category,
+        paymentBy,          // ← add here
       });
       return res.status(200).json({ success: true, ...result });
     }

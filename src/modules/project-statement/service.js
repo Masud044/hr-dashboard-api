@@ -1,99 +1,229 @@
-
 // src\modules\project-statement\service.js
-import { poolExecute, oracledb, getConnection } from '../../config/db.js';
-import { getWorkerCostsByProject } from '../worker-attendance/service.js';
+import { poolExecute, oracledb, getConnection } from "../../config/db.js";
+import { getWorkerCostsByProject } from "../worker-attendance/service.js";
 
 const PLACE_KEYWORDS = [
-  'bunnings', '7-eleven', 'ebay', 'amazon', 'amznprime',
-  'sydney water', 'linkt', 'westfield', 'officeworks',
-  'service nsw', 'cityofsydney', 'norek', 'kogan',
-  'fencing & gate', 'super cheap auto', 'allianz',
-  'lawn industries', 'turtle transport', 'sunlight products',
-  'protective film', 'eg group', 'bing lee', 'lighting mall',
-  'belong', 'infotrack', 'ctown council', 'darley aluminium',
-  'laumayka aluminium', 'blacktown-hills islami', 'oz home hub',
-  'insulshop', 'crazy domains', 'crazydomains', 'sand 4 u',
-  'turbo', 'tpg', 'amaysim', 'xero', 'fisher paykel', 'microsoft'
+  "bunnings",
+  "7-eleven",
+  "ebay",
+  "amazon",
+  "amznprime",
+  "sydney water",
+  "linkt",
+  "westfield",
+  "officeworks",
+  "service nsw",
+  "cityofsydney",
+  "norek",
+  "kogan",
+  "fencing & gate",
+  "super cheap auto",
+  "allianz",
+  "lawn industries",
+  "turtle transport",
+  "sunlight products",
+  "protective film",
+  "eg group",
+  "bing lee",
+  "lighting mall",
+  "belong",
+  "infotrack",
+  "ctown council",
+  "darley aluminium",
+  "laumayka aluminium",
+  "blacktown-hills islami",
+  "oz home hub",
+  "insulshop",
+  "crazy domains",
+  "crazydomains",
+  "sand 4 u",
+  "turbo",
+  "tpg",
+  "amaysim",
+  "xero",
+  "fisher paykel",
+  "microsoft",
 ];
 
 const PRODUCT_KEYWORDS = [
-  'insurance', 'internet', 'mobile', 'direct debit',
-  'loan', 'salary', 'super', 'tax office', 'xero',
-  'tpg internet', 'amaysim mobile', 'belong',
-  'allianz insurance', 'toyota insurance', 'return',
-  'fast transfer', 'direct credit', 'credit', 'debit',
-  'transfer', 'netbank', 'commbank', 'bpay'
+  "insurance",
+  "internet",
+  "mobile",
+  "direct debit",
+  "loan",
+  "salary",
+  "super",
+  "tax office",
+  "xero",
+  "tpg internet",
+  "amaysim mobile",
+  "belong",
+  "allianz insurance",
+  "toyota insurance",
+  "return",
+  "fast transfer",
+  "direct credit",
+  "credit",
+  "debit",
+  "transfer",
+  "netbank",
+  "commbank",
+  "bpay",
 ];
 
 function normalize(s) {
-  let v = (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  let v = (s || "").toLowerCase().trim().replace(/\s+/g, " ");
   const streetTypeMap = [
-    [/\broad\b/g, 'rd'], [/\bstreet\b/g, 'st'], [/\bavenue\b/g, 'ave'],
-    [/\bplace\b/g, 'pl'], [/\bdrive\b/g, 'dr'], [/\bcourt\b/g, 'ct'],
-    [/\bcrescent\b/g, 'cres'], [/\bhighway\b/g, 'hwy'], [/\bparade\b/g, 'pde'],
-    [/\bboulevard\b/g, 'blvd'], [/\blane\b/g, 'ln'], [/\bterrace\b/g, 'tce'],
-    [/\bclose\b/g, 'cl'], [/\bway\b/g, 'way'],
+    [/\broad\b/g, "rd"],
+    [/\bstreet\b/g, "st"],
+    [/\bavenue\b/g, "ave"],
+    [/\bplace\b/g, "pl"],
+    [/\bdrive\b/g, "dr"],
+    [/\bcourt\b/g, "ct"],
+    [/\bcrescent\b/g, "cres"],
+    [/\bhighway\b/g, "hwy"],
+    [/\bparade\b/g, "pde"],
+    [/\bboulevard\b/g, "blvd"],
+    [/\blane\b/g, "ln"],
+    [/\bterrace\b/g, "tce"],
+    [/\bclose\b/g, "cl"],
+    [/\bway\b/g, "way"],
   ];
-  for (const [pattern, replacement] of streetTypeMap) v = v.replace(pattern, replacement);
+  for (const [pattern, replacement] of streetTypeMap)
+    v = v.replace(pattern, replacement);
   return v;
 }
 
-
 const STOP_WORDS = new Set([
-  'rd', 'st', 'ave', 'pl', 'dr', 'ct', 'cres', 'hwy', 'pde', 'blvd', 'ln', 'tce', 'cl', 'way',
-  'street', 'road', 'avenue', 'place', 'drive', 'court', 'crescent', 'highway', 'parade',
-  'boulevard', 'lane', 'terrace', 'close',
-  'nsw', 'vic', 'qld', 'sa', 'wa', 'act', 'nt', 'tas',
-  'pty', 'ltd', 'llc', 'inc', 'corp', 'co', 'the', 'and', 'group',
-  'construction', 'constructions', 'services', 'service', 'company',
+  "rd",
+  "st",
+  "ave",
+  "pl",
+  "dr",
+  "ct",
+  "cres",
+  "hwy",
+  "pde",
+  "blvd",
+  "ln",
+  "tce",
+  "cl",
+  "way",
+  "street",
+  "road",
+  "avenue",
+  "place",
+  "drive",
+  "court",
+  "crescent",
+  "highway",
+  "parade",
+  "boulevard",
+  "lane",
+  "terrace",
+  "close",
+  "nsw",
+  "vic",
+  "qld",
+  "sa",
+  "wa",
+  "act",
+  "nt",
+  "tas",
+  "pty",
+  "ltd",
+  "llc",
+  "inc",
+  "corp",
+  "co",
+  "the",
+  "and",
+  "group",
+  "construction",
+  "constructions",
+  "services",
+  "service",
+  "company",
 ]);
 
 function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractKeywords(...strings) {
-  const combined = strings.filter(Boolean).join(' ');
+  const combined = strings.filter(Boolean).join(" ");
   const norm = normalize(combined);
   const words = norm.split(/[^a-z0-9]+/).filter(Boolean);
-  return [...new Set(words.filter((w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w)))];
+  return [
+    ...new Set(
+      words.filter(
+        (w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w),
+      ),
+    ),
+  ];
 }
 
 function parseCSV(text) {
   const lines = [];
-  let current = '', inQuotes = false, row = [], i = 0;
+  let current = "",
+    inQuotes = false,
+    row = [],
+    i = 0;
   const len = text.length;
   while (i < len) {
     const ch = text[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < len && text[i + 1] === '"') { current += '"'; i += 2; }
-        else { inQuotes = false; i++; }
-      } else { current += ch; i++; }
+        if (i + 1 < len && text[i + 1] === '"') {
+          current += '"';
+          i += 2;
+        } else {
+          inQuotes = false;
+          i++;
+        }
+      } else {
+        current += ch;
+        i++;
+      }
     } else {
-      if (ch === '"') { inQuotes = true; i++; }
-      else if (ch === ',') { row.push(current.trim()); current = ''; i++; }
-      else if (ch === '\r') { i++; }
-      else if (ch === '\n') {
+      if (ch === '"') {
+        inQuotes = true;
+        i++;
+      } else if (ch === ",") {
         row.push(current.trim());
-        if (row.some((c) => c !== '')) lines.push(row);
-        current = ''; row = []; i++;
-      } else { current += ch; i++; }
+        current = "";
+        i++;
+      } else if (ch === "\r") {
+        i++;
+      } else if (ch === "\n") {
+        row.push(current.trim());
+        if (row.some((c) => c !== "")) lines.push(row);
+        current = "";
+        row = [];
+        i++;
+      } else {
+        current += ch;
+        i++;
+      }
     }
   }
   if (current.trim() || row.length > 0) {
     row.push(current.trim());
-    if (row.some((c) => c !== '')) lines.push(row);
+    if (row.some((c) => c !== "")) lines.push(row);
   }
   return lines;
 }
 
 function categorize(desc) {
-  if (!desc) return 'other';
+  if (!desc) return "other";
   const lower = normalize(desc);
-  for (const kw of PLACE_KEYWORDS) { if (lower.includes(kw)) return 'place'; }
-  for (const kw of PRODUCT_KEYWORDS) { if (lower.includes(kw)) return 'product'; }
-  return 'other';
+  for (const kw of PLACE_KEYWORDS) {
+    if (lower.includes(kw)) return "place";
+  }
+  for (const kw of PRODUCT_KEYWORDS) {
+    if (lower.includes(kw)) return "product";
+  }
+  return "other";
 }
 
 // async function loadProjectAddresses() {
@@ -125,19 +255,25 @@ function categorize(desc) {
 async function loadProjectAddresses() {
   const result = await poolExecute(
     `SELECT P_ID, P_NAME, P_ADDRESS, SUBWRB, POSTCODE, STATE FROM PM.PM_PROJECT WHERE P_NAME IS NOT NULL`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
-  return (result.rows || []).map((r) => {
-    const keywords = extractKeywords(r.P_NAME);
-    return {
-      pId: r.P_ID,
-      pName: r.P_NAME,
-      keywords,
-      // ── regex একবারই বানানো হলো, প্রতি row-এ rebuild করা হবে না (perf fix) ──
-      regexes: keywords.map((kw) => new RegExp(`\\b${escapeRegex(kw)}\\b`)),
-      fullAddress: [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE].filter(Boolean).join(' ') || r.P_NAME
-    };
-  }).filter((p) => p.keywords.length > 0);
+  return (result.rows || [])
+    .map((r) => {
+      const keywords = extractKeywords(r.P_NAME);
+      return {
+        pId: r.P_ID,
+        pName: r.P_NAME,
+        keywords,
+        // ── regex একবারই বানানো হলো, প্রতি row-এ rebuild করা হবে না (perf fix) ──
+        regexes: keywords.map((kw) => new RegExp(`\\b${escapeRegex(kw)}\\b`)),
+        fullAddress:
+          [r.P_ADDRESS, r.SUBWRB, r.POSTCODE, r.STATE]
+            .filter(Boolean)
+            .join(" ") || r.P_NAME,
+      };
+    })
+    .filter((p) => p.keywords.length > 0);
 }
 // function matchProject(desc, projects) {
 //   if (!desc) return null;
@@ -166,14 +302,18 @@ async function loadProjectAddresses() {
 function matchProject(desc, projects) {
   if (!desc) return null;
   const descNorm = normalize(desc);
-  let best = null, bestScore = 0;
+  let best = null,
+    bestScore = 0;
 
   for (const p of projects) {
     let score = 0;
     for (let i = 0; i < p.regexes.length; i++) {
       if (p.regexes[i].test(descNorm)) score += p.keywords[i].length;
     }
-    if (score > bestScore) { bestScore = score; best = p; }
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
   }
 
   return bestScore >= 4 ? best : null;
@@ -207,7 +347,8 @@ function matchProject(desc, projects) {
 async function loadContractors() {
   const result = await poolExecute(
     `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 AND CONTRATOR_NAME IS NOT NULL`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   return (result.rows || [])
     .map((r) => {
@@ -235,26 +376,32 @@ async function loadContractors() {
 function matchContractor(desc, contractors) {
   if (!desc) return null;
   const descNorm = normalize(desc);
-  let best = null, bestScore = 0;
+  let best = null,
+    bestScore = 0;
 
   for (const c of contractors) {
     let score = 0;
     for (let i = 0; i < c.regexes.length; i++) {
       if (c.regexes[i].test(descNorm)) score += c.keywords[i].length;
     }
-    if (score > bestScore) { bestScore = score; best = c; }
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
   }
 
   return bestScore >= 4 ? best : null;
 }
 function extractInvoiceNo(desc) {
   if (!desc) return null;
-  const match = desc.match(/\b(?:Inv|Invoice)\b[\s.]*?(?:No\.?\s*)?[-:#]?\s*(\d+)\b/i);
+  const match = desc.match(
+    /\b(?:Inv|Invoice)\b[\s.]*?(?:No\.?\s*)?[-:#]?\s*(\d+)\b/i,
+  );
   return match ? match[1] : null;
 }
 
 function parseAmount(str) {
-  return parseFloat(String(str || '0').replace(/,/g, '')) || 0;
+  return parseFloat(String(str || "0").replace(/,/g, "")) || 0;
 }
 
 function parseDate(str) {
@@ -263,7 +410,9 @@ function parseDate(str) {
   let match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (match) {
     const [, d, m, y] = match;
-    const date = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T00:00:00`);
+    const date = new Date(
+      `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T00:00:00`,
+    );
     return isNaN(date.getTime()) ? null : date;
   }
   match = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -277,79 +426,91 @@ function parseDate(str) {
 }
 
 function toDateKey(val) {
-  if (!val) return '';
+  if (!val) return "";
   const d = val instanceof Date ? val : new Date(val);
-  if (isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // ── amount থেকে debit/credit বের করা: positive = debit, negative = credit ──
 function deriveDebitCredit(amount) {
   const n = Number(amount) || 0;
-  return n >= 0 ? { debit: n, credit: null } : { debit: null, credit: Math.abs(n) };
+  return n >= 0
+    ? { debit: n, credit: null }
+    : { debit: null, credit: Math.abs(n) };
 }
 
 // ── CSV upload: duplicate check শুধু STAGING থেকে ──
 export async function processCsvToStaging(csvText, userId) {
   const rows = parseCSV(csvText);
   let dataRows = rows;
-  if (rows[0] && rows[0].some((c) => /date|amount|debit|credit|description|balance|narration/i.test(c))) {
+  if (
+    rows[0] &&
+    rows[0].some((c) =>
+      /date|amount|debit|credit|description|balance|narration/i.test(c),
+    )
+  ) {
     dataRows = rows.slice(1);
   }
 
-  const projects    = await loadProjectAddresses();
+  const projects = await loadProjectAddresses();
   const contractors = await loadContractors();
-  const batchId     = Date.now();
+  const batchId = Date.now();
 
   const existingResult = await poolExecute(
     `SELECT TXN_DATE, AMOUNT, DESCRIPTION FROM PM.PM_STATEMENT_STAGING`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const existingKeys = new Set(
-    (existingResult.rows || []).map((r) =>
-      `${toDateKey(r.TXN_DATE)}|${Number(r.AMOUNT)}|${(r.DESCRIPTION || '').trim().toLowerCase()}`
-    )
+    (existingResult.rows || []).map(
+      (r) =>
+        `${toDateKey(r.TXN_DATE)}|${Number(r.AMOUNT)}|${(r.DESCRIPTION || "").trim().toLowerCase()}`,
+    ),
   );
 
   const processed = [];
   for (const row of dataRows) {
     if (row.length < 3) continue;
-    const dateStr    = row[0];
-    const amountStr  = row[1];
-    const desc       = row[2];
+    const dateStr = row[0];
+    const amountStr = row[1];
+    const desc = row[2];
     const balanceStr = row[3] || null;
 
     const txnDate = parseDate(dateStr);
-    const amount  = parseAmount(amountStr);
+    const amount = parseAmount(amountStr);
 
-    const key = `${toDateKey(txnDate)}|${Number(amount)}|${(desc || '').trim().toLowerCase()}`;
+    const key = `${toDateKey(txnDate)}|${Number(amount)}|${(desc || "").trim().toLowerCase()}`;
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);
 
-    const matchedProject    = matchProject(desc, projects);
+    const matchedProject = matchProject(desc, projects);
     const matchedContractor = matchContractor(desc, contractors);
-    const category          = matchedProject ? 'address' : categorize(desc);
-    const invoiceNo         = extractInvoiceNo(desc);
+    const category = matchedProject ? "address" : categorize(desc);
+    const invoiceNo = extractInvoiceNo(desc);
 
     processed.push({
       uploadBatchId: batchId,
       pId: matchedProject ? matchedProject.pId : null,
       projectName: matchedProject ? matchedProject.pName : null,
-      txnDate, amount,
-      description: desc || '',
+      txnDate,
+      amount,
+      description: desc || "",
       balance: balanceStr !== null ? parseAmount(balanceStr) : null,
       category,
       matchedAddress: matchedProject ? matchedProject.fullAddress : null,
       contractorId: matchedContractor ? matchedContractor.contractorId : null,
-      contractorName: matchedContractor ? matchedContractor.contractorName : null,
+      contractorName: matchedContractor
+        ? matchedContractor.contractorName
+        : null,
       invoiceNo: invoiceNo || null,
-      sourceType: 'BANKING',
+      sourceType: "BANKING",
       remarks: null,
-      userId
+      userId,
     });
   }
 
- await bulkInsertStaging(processed);
+  await bulkInsertStaging(processed);
 
   return { batchId, count: processed.length, skipped: 0 };
 }
@@ -374,22 +535,22 @@ async function bulkInsertStaging(processed) {
       autoCommit: true,
       batchErrors: true,
       bindDefs: {
-        uploadBatchId:  { type: oracledb.NUMBER },
-        pId:            { type: oracledb.NUMBER },
-        projectName:    { type: oracledb.STRING, maxSize: 500 },
-        txnDate:        { type: oracledb.DATE },
-        amount:         { type: oracledb.NUMBER },
-        description:    { type: oracledb.STRING, maxSize: 4000 },
-        balance:        { type: oracledb.NUMBER },
-        category:       { type: oracledb.STRING, maxSize: 50 },
+        uploadBatchId: { type: oracledb.NUMBER },
+        pId: { type: oracledb.NUMBER },
+        projectName: { type: oracledb.STRING, maxSize: 500 },
+        txnDate: { type: oracledb.DATE },
+        amount: { type: oracledb.NUMBER },
+        description: { type: oracledb.STRING, maxSize: 4000 },
+        balance: { type: oracledb.NUMBER },
+        category: { type: oracledb.STRING, maxSize: 50 },
         matchedAddress: { type: oracledb.STRING, maxSize: 500 },
-        contractorId:   { type: oracledb.NUMBER },
+        contractorId: { type: oracledb.NUMBER },
         contractorName: { type: oracledb.STRING, maxSize: 500 },
-        invoiceNo:      { type: oracledb.STRING, maxSize: 100 },
-        sourceType:     { type: oracledb.STRING, maxSize: 20 },
-        remarks:        { type: oracledb.STRING, maxSize: 500 },
-        userId:         { type: oracledb.NUMBER }
-      }
+        invoiceNo: { type: oracledb.STRING, maxSize: 100 },
+        sourceType: { type: oracledb.STRING, maxSize: 20 },
+        remarks: { type: oracledb.STRING, maxSize: 500 },
+        userId: { type: oracledb.NUMBER },
+      },
     };
 
     const CHUNK = 500;
@@ -397,7 +558,7 @@ async function bulkInsertStaging(processed) {
       const batch = processed.slice(i, i + CHUNK);
       const result = await conn.executeMany(sql, batch, options);
       if (result.batchErrors?.length) {
-        console.error('Staging bulk insert batchErrors:', result.batchErrors);
+        console.error("Staging bulk insert batchErrors:", result.batchErrors);
       }
     }
   } finally {
@@ -405,12 +566,12 @@ async function bulkInsertStaging(processed) {
   }
 }
 
-
 export async function getLatestPendingBatch() {
   const result = await poolExecute(
     `SELECT UPLOAD_BATCH_ID FROM PM.PM_STATEMENT_STAGING
      WHERE STATUS = 'PENDING' ORDER BY CREATION_DATE DESC FETCH FIRST 1 ROWS ONLY`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const row = result.rows?.[0];
   return row ? row.UPLOAD_BATCH_ID : null;
@@ -422,18 +583,23 @@ export async function getStagingByBatch(batchId) {
             s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
             s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
             s.INVOICE_FILE_NAME, s.INVOICE_FILE_TYPE, s.INVOICE_FILE_SIZE,
-            s.SOURCE_TYPE, s.REMARKS, s.STATUS
+            s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY, s.STATUS
      FROM PM.PM_STATEMENT_STAGING s
      WHERE s.UPLOAD_BATCH_ID = :batchId
      ORDER BY s.TXN_DATE DESC`,
-    { batchId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    { batchId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   return result.rows || [];
 }
 
 // ── filters সহ সব staging rows (Banking / Non-banking sub-tab) ──
 // ── এখন optional pagination + stats সহ: page/pageSize না দিলে আগের মতোই সব rows রিটার্ন করবে ──
-export async function getStagingFiltered(filters = {}, pagination = {}, sortBy = 'txnDate') {
+export async function getStagingFiltered(
+  filters = {},
+  pagination = {},
+  sortBy = "txnDate",
+) {
   // const { where, binds } = buildStagingWhere(filters);
 
   // let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
@@ -442,16 +608,17 @@ export async function getStagingFiltered(filters = {}, pagination = {}, sortBy =
   //                   INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, STATUS
   //            FROM PM.PM_STATEMENT_STAGING ${where}
   //            ORDER BY TXN_DATE DESC, STAGING_ID DESC`;
-   const { where, binds } = buildStagingWhere(filters);
+  const { where, binds } = buildStagingWhere(filters);
 
-  const orderClause = sortBy === 'recent'
-    ? 'CREATION_DATE DESC, STAGING_ID DESC'
-    : 'TXN_DATE DESC, STAGING_ID DESC';
+  const orderClause =
+    sortBy === "recent"
+      ? "CREATION_DATE DESC, STAGING_ID DESC"
+      : "TXN_DATE DESC, STAGING_ID DESC";
 
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
                     CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-                    INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, STATUS
+                    INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, PAYMENT_BY, STATUS
              FROM PM.PM_STATEMENT_STAGING ${where}
              ORDER BY ${orderClause}`;
 
@@ -459,7 +626,9 @@ export async function getStagingFiltered(filters = {}, pagination = {}, sortBy =
   const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
 
   if (!isPaginated) {
-    const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const result = await poolExecute(sql, binds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
     return result.rows || [];
   }
 
@@ -470,7 +639,9 @@ export async function getStagingFiltered(filters = {}, pagination = {}, sortBy =
   const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_STAGING ${where}`;
 
   const [dataResult, countResult] = await Promise.all([
-    poolExecute(pagedSql, pagedBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+    poolExecute(pagedSql, pagedBinds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    }),
     poolExecute(countSql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
   ]);
 
@@ -489,10 +660,12 @@ export async function getStagingStats(filters = {}) {
                FROM PM.PM_STATEMENT_STAGING ${where}
                GROUP BY CATEGORY`;
 
-  const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+  const result = await poolExecute(sql, binds, {
+    outFormat: oracledb.OUT_FORMAT_OBJECT,
+  });
   const stats = { address: 0, place: 0, product: 0, other: 0 };
   for (const row of result.rows || []) {
-    const key = (row.CATEGORY || 'other').toLowerCase();
+    const key = (row.CATEGORY || "other").toLowerCase();
     if (stats[key] !== undefined) stats[key] = Number(row.CNT);
     else stats.other += Number(row.CNT);
   }
@@ -501,30 +674,71 @@ export async function getStagingStats(filters = {}) {
 
 // ── WHERE clause builder, shared by getStagingFiltered / getStagingStats ──
 function buildStagingWhere(filters = {}) {
-  let where = 'WHERE 1=1';
+  let where = "WHERE 1=1";
   const binds = {};
 
-  if (filters.sourceType) { where += ' AND SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
-  if (filters.status)     { where += ' AND STATUS = :status';         binds.status = filters.status; }
-  if (filters.dateFrom)   { where += ' AND TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
-  if (filters.dateTo)     { where += ' AND TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
-  if (filters.pId)        { where += ' AND P_ID = :pId'; binds.pId = filters.pId; }
-  if (filters.contractorId) { where += ' AND CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
-  if (filters.invoiceNo)  { where += ' AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  if (filters.amountMin)  { where += ' AND AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
-  if (filters.amountMax)  { where += ' AND AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
-  if (filters.description){ where += ' AND UPPER(DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
-  if (filters.matchedAddress) { where += ' AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+  if (filters.sourceType) {
+    where += " AND SOURCE_TYPE = :sourceType";
+    binds.sourceType = filters.sourceType;
+  }
+  if (filters.status) {
+    where += " AND STATUS = :status";
+    binds.status = filters.status;
+  }
+  if (filters.dateFrom) {
+    where += " AND TXN_DATE >= TO_DATE(:dateFrom, 'YYYY-MM-DD')";
+    binds.dateFrom = filters.dateFrom;
+  }
+  if (filters.dateTo) {
+    where += " AND TXN_DATE <= TO_DATE(:dateTo, 'YYYY-MM-DD')";
+    binds.dateTo = filters.dateTo;
+  }
+  if (filters.pId) {
+    where += " AND P_ID = :pId";
+    binds.pId = filters.pId;
+  }
+  if (filters.contractorId) {
+    where += " AND CONTRACTOR_ID = :contractorId";
+    binds.contractorId = filters.contractorId;
+  }
+  if (filters.invoiceNo) {
+    where += " AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)";
+    binds.invoiceNo = `%${filters.invoiceNo}%`;
+  }
+  if (filters.amountMin) {
+    where += " AND AMOUNT >= :amountMin";
+    binds.amountMin = filters.amountMin;
+  }
+  if (filters.amountMax) {
+    where += " AND AMOUNT <= :amountMax";
+    binds.amountMax = filters.amountMax;
+  }
+  if (filters.description) {
+    where += " AND UPPER(DESCRIPTION) LIKE UPPER(:description)";
+    binds.description = `%${filters.description}%`;
+  }
+  if (filters.matchedAddress) {
+    where += " AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
+    binds.matchedAddress = `%${filters.matchedAddress}%`;
+  }
 
   // ── single category dropdown filter (existing behavior) ──
-  if (filters.category) { where += ' AND CATEGORY = :category'; binds.category = filters.category; }
+  if (filters.category) {
+    where += " AND CATEGORY = :category";
+    binds.category = filters.category;
+  }
 
   // ── NEW: multi-select checkbox filter, e.g. categories=address,place ──
   if (filters.categories) {
-    const list = String(filters.categories).split(',').map((c) => c.trim()).filter(Boolean);
+    const list = String(filters.categories)
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
     if (list.length > 0) {
-      const placeholders = list.map((_, i) => `:cat${i}`).join(',');
-      list.forEach((c, i) => { binds[`cat${i}`] = c; });
+      const placeholders = list.map((_, i) => `:cat${i}`).join(",");
+      list.forEach((c, i) => {
+        binds[`cat${i}`] = c;
+      });
       where += ` AND CATEGORY IN (${placeholders})`;
     }
   }
@@ -586,7 +800,8 @@ function buildStagingWhere(filters = {}) {
 export async function getAllProjects() {
   const result = await poolExecute(
     `SELECT P_ID, P_NAME FROM PM.PM_PROJECT ORDER BY SORT_ORDER ASC`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   return result.rows || [];
 }
@@ -594,7 +809,8 @@ export async function getAllProjects() {
 export async function getAllContractors() {
   const result = await poolExecute(
     `SELECT CONTRATOR_ID, CONTRATOR_NAME FROM PM.PM_CONTRACTOR_INFO WHERE STATUS = 1 ORDER BY SORT_ORDER ASC`,
-    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    {},
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   return result.rows || [];
 }
@@ -602,27 +818,41 @@ export async function getAllContractors() {
 // ── Approved Records (PM_STATEMENT_MAIN) inline edit — mirrors updateStagingRow but targets TXN_ID ──
 export async function updateMainRow(txnId, updates) {
   const fields = [];
-  const binds  = { txnId };
+  const binds = { txnId };
 
   if (updates.pId !== undefined) {
-    fields.push('P_ID = :pId', 'PROJECT_NAME = :projectName');
+    fields.push("P_ID = :pId", "PROJECT_NAME = :projectName");
     binds.pId = updates.pId || null;
     binds.projectName = updates.projectName || null;
   }
   if (updates.contractorId !== undefined) {
-    fields.push('CONTRACTOR_ID = :contractorId', 'CONTRACTOR_NAME = :contractorName');
+    fields.push(
+      "CONTRACTOR_ID = :contractorId",
+      "CONTRACTOR_NAME = :contractorName",
+    );
     binds.contractorId = updates.contractorId || null;
     binds.contractorName = updates.contractorName || null;
   }
-  if (updates.invoiceNo !== undefined) { fields.push('INVOICE_NO = :invoiceNo'); binds.invoiceNo = updates.invoiceNo || null; }
-  if (updates.remarks !== undefined)   { fields.push('REMARKS = :remarks');     binds.remarks = updates.remarks || null; }
-  if (updates.category !== undefined)  { fields.push('CATEGORY = :category');   binds.category = updates.category || null; }
+  if (updates.invoiceNo !== undefined) {
+    fields.push("INVOICE_NO = :invoiceNo");
+    binds.invoiceNo = updates.invoiceNo || null;
+  }
+  if (updates.remarks !== undefined) {
+    fields.push("REMARKS = :remarks");
+    binds.remarks = updates.remarks || null;
+  }
+  if (updates.category !== undefined) {
+    fields.push("CATEGORY = :category");
+    binds.category = updates.category || null;
+  }
+  if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  
 
   if (fields.length === 0) return { updated: false };
 
   await poolExecute(
-    `UPDATE PM.PM_STATEMENT_MAIN SET ${fields.join(', ')} WHERE TXN_ID = :txnId`,
-    binds, { autoCommit: true }
+    `UPDATE PM.PM_STATEMENT_MAIN SET ${fields.join(", ")} WHERE TXN_ID = :txnId`,
+    binds,
+    { autoCommit: true },
   );
   return { updated: true };
 }
@@ -638,8 +868,9 @@ export async function uploadMainInvoiceFile(txnId, file) {
       fileData: { val: file.buffer, type: oracledb.BLOB },
       fileName: file.originalname,
       fileType: file.mimetype,
-      fileSize: file.size
-    }, { autoCommit: true }
+      fileSize: file.size,
+    },
+    { autoCommit: true },
   );
   return { uploaded: true };
 }
@@ -650,34 +881,50 @@ export async function deleteMainInvoiceFile(txnId) {
      SET INVOICE_FILE = NULL, INVOICE_FILE_NAME = NULL,
          INVOICE_FILE_TYPE = NULL, INVOICE_FILE_SIZE = NULL
      WHERE TXN_ID = :txnId`,
-    { txnId }, { autoCommit: true }
+    { txnId },
+    { autoCommit: true },
   );
   return { deleted: true };
 }
 
 export async function updateStagingRow(stagingId, updates) {
   const fields = [];
-  const binds  = { stagingId };
+  const binds = { stagingId };
 
   if (updates.pId !== undefined) {
-    fields.push('P_ID = :pId', 'PROJECT_NAME = :projectName');
+    fields.push("P_ID = :pId", "PROJECT_NAME = :projectName");
     binds.pId = updates.pId || null;
     binds.projectName = updates.projectName || null;
   }
   if (updates.contractorId !== undefined) {
-    fields.push('CONTRACTOR_ID = :contractorId', 'CONTRACTOR_NAME = :contractorName');
+    fields.push(
+      "CONTRACTOR_ID = :contractorId",
+      "CONTRACTOR_NAME = :contractorName",
+    );
     binds.contractorId = updates.contractorId || null;
     binds.contractorName = updates.contractorName || null;
   }
-  if (updates.invoiceNo !== undefined) { fields.push('INVOICE_NO = :invoiceNo'); binds.invoiceNo = updates.invoiceNo || null; }
-  if (updates.remarks !== undefined)   { fields.push('REMARKS = :remarks');     binds.remarks = updates.remarks || null; }
-  if (updates.category !== undefined)  { fields.push('CATEGORY = :category');   binds.category = updates.category || null; }
+  if (updates.invoiceNo !== undefined) {
+    fields.push("INVOICE_NO = :invoiceNo");
+    binds.invoiceNo = updates.invoiceNo || null;
+  }
+  if (updates.remarks !== undefined) {
+    fields.push("REMARKS = :remarks");
+    binds.remarks = updates.remarks || null;
+  }
+  if (updates.category !== undefined) {
+    fields.push("CATEGORY = :category");
+    binds.category = updates.category || null;
+  }
+   if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  // ← add here
+
 
   if (fields.length === 0) return { updated: false };
 
   await poolExecute(
-    `UPDATE PM.PM_STATEMENT_STAGING SET ${fields.join(', ')} WHERE STAGING_ID = :stagingId`,
-    binds, { autoCommit: true }
+    `UPDATE PM.PM_STATEMENT_STAGING SET ${fields.join(", ")} WHERE STAGING_ID = :stagingId`,
+    binds,
+    { autoCommit: true },
   );
   return { updated: true };
 }
@@ -693,8 +940,9 @@ export async function uploadInvoiceFile(stagingId, file) {
       fileData: { val: file.buffer, type: oracledb.BLOB },
       fileName: file.originalname,
       fileType: file.mimetype,
-      fileSize: file.size
-    }, { autoCommit: true }
+      fileSize: file.size,
+    },
+    { autoCommit: true },
   );
   return { uploaded: true };
 }
@@ -706,7 +954,8 @@ export async function deleteInvoiceFile(stagingId) {
      SET INVOICE_FILE = NULL, INVOICE_FILE_NAME = NULL,
          INVOICE_FILE_TYPE = NULL, INVOICE_FILE_SIZE = NULL
      WHERE STAGING_ID = :stagingId`,
-    { stagingId }, { autoCommit: true }
+    { stagingId },
+    { autoCommit: true },
   );
   return { deleted: true };
 }
@@ -714,13 +963,14 @@ export async function deleteInvoiceFile(stagingId) {
 async function readLobToBuffer(lobOrBuffer) {
   if (!lobOrBuffer) return null;
   if (Buffer.isBuffer(lobOrBuffer)) return lobOrBuffer;
-  if (typeof lobOrBuffer.getData === 'function') return await lobOrBuffer.getData();
-  if (typeof lobOrBuffer.on === 'function') {
+  if (typeof lobOrBuffer.getData === "function")
+    return await lobOrBuffer.getData();
+  if (typeof lobOrBuffer.on === "function") {
     return await new Promise((resolve, reject) => {
       const chunks = [];
-      lobOrBuffer.on('data', (chunk) => chunks.push(chunk));
-      lobOrBuffer.on('end', () => resolve(Buffer.concat(chunks)));
-      lobOrBuffer.on('error', reject);
+      lobOrBuffer.on("data", (chunk) => chunks.push(chunk));
+      lobOrBuffer.on("end", () => resolve(Buffer.concat(chunks)));
+      lobOrBuffer.on("error", reject);
     });
   }
   return Buffer.from(lobOrBuffer);
@@ -732,13 +982,18 @@ export async function getInvoiceFile(stagingId) {
     const result = await conn.execute(
       `SELECT INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE
        FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :stagingId`,
-      { stagingId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { stagingId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const row = result.rows?.[0];
     if (!row || !row.INVOICE_FILE) return null;
     const buffer = await readLobToBuffer(row.INVOICE_FILE);
     if (!buffer) return null;
-    return { buffer, fileName: row.INVOICE_FILE_NAME, fileType: row.INVOICE_FILE_TYPE };
+    return {
+      buffer,
+      fileName: row.INVOICE_FILE_NAME,
+      fileType: row.INVOICE_FILE_TYPE,
+    };
   } finally {
     await conn.close();
   }
@@ -820,76 +1075,134 @@ export async function getInvoiceFile(stagingId) {
 // }
 export async function approveAndMoveToMain(stagingIds, approvedBy) {
   if (!Array.isArray(stagingIds) || stagingIds.length === 0) {
-    throw new Error('No rows selected to approve.');
+    throw new Error("No rows selected to approve.");
   }
 
-  const placeholders = stagingIds.map((_, i) => `:id${i}`).join(',');
+  const placeholders = stagingIds.map((_, i) => `:id${i}`).join(",");
   const binds = {};
-  stagingIds.forEach((id, i) => { binds[`id${i}`] = id; });
+  stagingIds.forEach((id, i) => {
+    binds[`id${i}`] = id;
+  });
 
   const conn = await getConnection();
   try {
+    // const stagingResult = await conn.execute(
+    //   `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+    //           CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+    //           INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+    //           SOURCE_TYPE, REMARKS, USER_ID, ENTRY_TYPE
+    //    FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID IN (${placeholders})`,
+    //   binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    // );
     const stagingResult = await conn.execute(
       `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
               CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
               INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-              SOURCE_TYPE, REMARKS, USER_ID, ENTRY_TYPE
+              SOURCE_TYPE, REMARKS, PAYMENT_BY, USER_ID, ENTRY_TYPE   -- ← add PAYMENT_BY here
        FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID IN (${placeholders})`,
-      binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      binds,
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
-   for (const row of stagingResult.rows || []) {
-  let debit = null, credit = null;
+    for (const row of stagingResult.rows || []) {
+      let debit = null,
+        credit = null;
 
-  if (row.SOURCE_TYPE === 'NON_BANKING' && row.ENTRY_TYPE) {
-    if (row.ENTRY_TYPE === 'DEBIT') debit = Math.abs(Number(row.AMOUNT));
-    else credit = Math.abs(Number(row.AMOUNT));
-  } else {
-    const dc = deriveDebitCredit(row.AMOUNT);
-    debit = dc.debit;
-    credit = dc.credit;
-  }
+      if (row.SOURCE_TYPE === "NON_BANKING" && row.ENTRY_TYPE) {
+        if (row.ENTRY_TYPE === "DEBIT") debit = Math.abs(Number(row.AMOUNT));
+        else credit = Math.abs(Number(row.AMOUNT));
+      } else {
+        const dc = deriveDebitCredit(row.AMOUNT);
+        debit = dc.debit;
+        credit = dc.credit;
+      }
 
-  const insertResult = await conn.execute(
-    `INSERT INTO PM.PM_STATEMENT_MAIN
+      // const insertResult = await conn.execute(
+      //   `INSERT INTO PM.PM_STATEMENT_MAIN
+      //     (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+      //      CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+      //      INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+      //      SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+      //    VALUES
+      //     (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+      //      :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
+      //      :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
+      //      :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)
+      //    RETURNING TXN_ID INTO :newTxnId`,
+      //   {
+      //     stagingId: row.STAGING_ID,
+      //     uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
+      //     txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
+      //     category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
+      //     contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
+      //     invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
+      //     invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
+      //     sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
+      //     debit, credit, approvedBy, userId: row.USER_ID,
+      //     newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
+      //   }
+      // );
+
+      const insertResult = await conn.execute(
+        `INSERT INTO PM.PM_STATEMENT_MAIN
       (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
        CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
        INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-       SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+       SOURCE_TYPE, REMARKS, PAYMENT_BY, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
      VALUES
       (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
        :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
        :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
-       :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)
+       :sourceType, :remarks, :paymentBy, :debit, :credit, :approvedBy, SYSDATE, :userId)
      RETURNING TXN_ID INTO :newTxnId`,
-    {
-      stagingId: row.STAGING_ID,
-      uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
-      txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
-      category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
-      contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
-      invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
-      invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
-      sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
-      debit, credit, approvedBy, userId: row.USER_ID,
-      newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
+        {
+          stagingId: row.STAGING_ID,
+          uploadBatchId: row.UPLOAD_BATCH_ID,
+          pId: row.P_ID,
+          projectName: row.PROJECT_NAME,
+          txnDate: row.TXN_DATE,
+          amount: row.AMOUNT,
+          description: row.DESCRIPTION,
+          balance: row.BALANCE,
+          category: row.CATEGORY,
+          matchedAddress: row.MATCHED_ADDRESS,
+          contractorId: row.CONTRACTOR_ID,
+          contractorName: row.CONTRACTOR_NAME,
+          invoiceNo: row.INVOICE_NO,
+          invoiceFile: row.INVOICE_FILE
+            ? {
+                val: await readLobToBuffer(row.INVOICE_FILE),
+                type: oracledb.BLOB,
+              }
+            : null,
+          invoiceFileName: row.INVOICE_FILE_NAME,
+          invoiceFileType: row.INVOICE_FILE_TYPE,
+          invoiceFileSize: row.INVOICE_FILE_SIZE,
+          sourceType: row.SOURCE_TYPE,
+          remarks: row.REMARKS,
+          paymentBy: row.PAYMENT_BY,
+          debit,
+          credit,
+          approvedBy,
+          userId: row.USER_ID,
+          newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
+        },
+      );
+
+      const newTxnId = insertResult.outBinds.newTxnId[0];
+
+      // ── move any multi-invoices linked to this staging row over to the new MAIN row ──
+      // await conn.execute(
+      //   `UPDATE PM.PM_STATEMENT_INVOICE
+      //    SET PARENT_TYPE = 'MAIN', PARENT_ID = :txnId
+      //    WHERE PARENT_TYPE = 'STAGING' AND PARENT_ID = :stagingId`,
+      //   { txnId: newTxnId, stagingId: row.STAGING_ID }
+      // );
     }
-  );
-
-  const newTxnId = insertResult.outBinds.newTxnId[0];
-
-  // ── move any multi-invoices linked to this staging row over to the new MAIN row ──
-  // await conn.execute(
-  //   `UPDATE PM.PM_STATEMENT_INVOICE
-  //    SET PARENT_TYPE = 'MAIN', PARENT_ID = :txnId
-  //    WHERE PARENT_TYPE = 'STAGING' AND PARENT_ID = :stagingId`,
-  //   { txnId: newTxnId, stagingId: row.STAGING_ID }
-  // );
-}
 
     await conn.execute(
       `UPDATE PM.PM_STATEMENT_STAGING SET STATUS = 'APPROVED' WHERE STAGING_ID IN (${placeholders})`,
-      binds
+      binds,
     );
 
     await conn.commit();
@@ -903,45 +1216,99 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
 }
 
 // ── Non-banking manual entry: entryType (DEBIT/CREDIT) + category সহ ──
+// export async function insertNonBankingEntry(data, userId) {
+//   const batchId = Date.now();
+//   const {
+//     txnDate, amount, description, pId, projectName,
+//     contractorId, contractorName, invoiceNo, remarks, entryType, category
+//   } = data;
+
+//   if (!['DEBIT', 'CREDIT'].includes(entryType)) {
+//     throw new Error('entryType must be DEBIT or CREDIT.');
+//   }
+
+//   const rawAmount = Math.abs(parseAmount(String(amount)));
+//   // স্টোর করার সময়: DEBIT positive, CREDIT negative (যেন approve-এর সময় derive logic আগের মতই কাজ করে main-এ)
+//   const storedAmount = entryType === 'DEBIT' ? rawAmount : -rawAmount;
+
+//   await poolExecute(
+//     `INSERT INTO PM.PM_STATEMENT_STAGING
+//       (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+//        CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+//        SOURCE_TYPE, REMARKS, ENTRY_TYPE, STATUS, USER_ID)
+//      VALUES
+//       (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, NULL,
+//        :category, NULL, :contractorId, :contractorName, :invoiceNo,
+//        'NON_BANKING', :remarks, :entryType, 'PENDING', :userId)`,
+//     {
+//       uploadBatchId: batchId,
+//       pId: pId || null,
+//       projectName: projectName || null,
+//       txnDate: txnDate ? new Date(txnDate) : null,
+//       amount: storedAmount,
+//       description: description || '',
+//       category: category || 'other',
+//       contractorId: contractorId || null,
+//       contractorName: contractorName || null,
+//       invoiceNo: invoiceNo || null,
+//       remarks: remarks || null,
+//       entryType,
+//       userId
+//     }, { autoCommit: true }
+//   );
+
+//   return { batchId };
+// }
 export async function insertNonBankingEntry(data, userId) {
   const batchId = Date.now();
   const {
-    txnDate, amount, description, pId, projectName,
-    contractorId, contractorName, invoiceNo, remarks, entryType, category
+    txnDate,
+    amount,
+    description,
+    pId,
+    projectName,
+    contractorId,
+    contractorName,
+    invoiceNo,
+    remarks,
+    entryType,
+    category,
+    paymentBy, // NEW: 'CUSTOMER' | 'BUILDER'
   } = data;
 
-  if (!['DEBIT', 'CREDIT'].includes(entryType)) {
-    throw new Error('entryType must be DEBIT or CREDIT.');
+  if (!["DEBIT", "CREDIT"].includes(entryType)) {
+    throw new Error("entryType must be DEBIT or CREDIT.");
   }
 
   const rawAmount = Math.abs(parseAmount(String(amount)));
-  // স্টোর করার সময়: DEBIT positive, CREDIT negative (যেন approve-এর সময় derive logic আগের মতই কাজ করে main-এ)
-  const storedAmount = entryType === 'DEBIT' ? rawAmount : -rawAmount;
+  const storedAmount = entryType === "DEBIT" ? rawAmount : -rawAmount;
 
   await poolExecute(
     `INSERT INTO PM.PM_STATEMENT_STAGING
       (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
        CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-       SOURCE_TYPE, REMARKS, ENTRY_TYPE, STATUS, USER_ID)
+       SOURCE_TYPE, REMARKS, ENTRY_TYPE, PAYMENT_BY, STATUS, USER_ID)
      VALUES
       (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, NULL,
        :category, NULL, :contractorId, :contractorName, :invoiceNo,
-       'NON_BANKING', :remarks, :entryType, 'PENDING', :userId)`,
+       'NON_BANKING', :remarks, :entryType, :paymentBy, 'PENDING', :userId)`,
     {
       uploadBatchId: batchId,
       pId: pId || null,
       projectName: projectName || null,
       txnDate: txnDate ? new Date(txnDate) : null,
       amount: storedAmount,
-      description: description || '',
-      category: category || 'other',
+      description: description || "",
+      category: category || "other",
       contractorId: contractorId || null,
       contractorName: contractorName || null,
       invoiceNo: invoiceNo || null,
       remarks: remarks || null,
       entryType,
-      userId
-    }, { autoCommit: true }
+      paymentBy: paymentBy || null,
+      userId,
+    },
+    { autoCommit: true },
   );
 
   return { batchId };
@@ -982,7 +1349,7 @@ export async function getMainTransactions(filters = {}, pagination = {}) {
                     m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
                     m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
                     m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
-                    m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE
+                    m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE 
              FROM PM.PM_STATEMENT_MAIN m ${where}
              ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
 
@@ -990,7 +1357,9 @@ export async function getMainTransactions(filters = {}, pagination = {}) {
   const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
 
   if (!isPaginated) {
-    const result = await poolExecute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const result = await poolExecute(sql, binds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
     return result.rows || [];
   }
 
@@ -1001,7 +1370,9 @@ export async function getMainTransactions(filters = {}, pagination = {}) {
   const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_MAIN m ${where}`;
 
   const [dataResult, countResult] = await Promise.all([
-    poolExecute(pagedSql, pagedBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+    poolExecute(pagedSql, pagedBinds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    }),
     poolExecute(countSql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
   ]);
 
@@ -1012,20 +1383,53 @@ export async function getMainTransactions(filters = {}, pagination = {}) {
 }
 
 function buildMainWhere(filters = {}) {
-  let where = 'WHERE 1=1';
+  let where = "WHERE 1=1";
   const binds = {};
 
-  if (filters.pId)         { where += ' AND m.P_ID = :pId';           binds.pId = filters.pId; }
-  if (filters.category)    { where += ' AND m.CATEGORY = :category';  binds.category = filters.category; }
-  if (filters.sourceType)  { where += ' AND m.SOURCE_TYPE = :sourceType'; binds.sourceType = filters.sourceType; }
-  if (filters.dateFrom)    { where += ' AND m.TXN_DATE >= TO_DATE(:dateFrom, \'YYYY-MM-DD\')'; binds.dateFrom = filters.dateFrom; }
-  if (filters.dateTo)      { where += ' AND m.TXN_DATE <= TO_DATE(:dateTo, \'YYYY-MM-DD\')';   binds.dateTo = filters.dateTo; }
-  if (filters.contractorId){ where += ' AND m.CONTRACTOR_ID = :contractorId'; binds.contractorId = filters.contractorId; }
-  if (filters.invoiceNo)   { where += ' AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)'; binds.invoiceNo = `%${filters.invoiceNo}%`; }
-  if (filters.amountMin)   { where += ' AND m.AMOUNT >= :amountMin'; binds.amountMin = filters.amountMin; }
-  if (filters.amountMax)   { where += ' AND m.AMOUNT <= :amountMax'; binds.amountMax = filters.amountMax; }
-  if (filters.description) { where += ' AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)'; binds.description = `%${filters.description}%`; }
-  if (filters.matchedAddress) { where += ' AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)'; binds.matchedAddress = `%${filters.matchedAddress}%`; }
+  if (filters.pId) {
+    where += " AND m.P_ID = :pId";
+    binds.pId = filters.pId;
+  }
+  if (filters.category) {
+    where += " AND m.CATEGORY = :category";
+    binds.category = filters.category;
+  }
+  if (filters.sourceType) {
+    where += " AND m.SOURCE_TYPE = :sourceType";
+    binds.sourceType = filters.sourceType;
+  }
+  if (filters.dateFrom) {
+    where += " AND m.TXN_DATE >= TO_DATE(:dateFrom, 'YYYY-MM-DD')";
+    binds.dateFrom = filters.dateFrom;
+  }
+  if (filters.dateTo) {
+    where += " AND m.TXN_DATE <= TO_DATE(:dateTo, 'YYYY-MM-DD')";
+    binds.dateTo = filters.dateTo;
+  }
+  if (filters.contractorId) {
+    where += " AND m.CONTRACTOR_ID = :contractorId";
+    binds.contractorId = filters.contractorId;
+  }
+  if (filters.invoiceNo) {
+    where += " AND UPPER(m.INVOICE_NO) LIKE UPPER(:invoiceNo)";
+    binds.invoiceNo = `%${filters.invoiceNo}%`;
+  }
+  if (filters.amountMin) {
+    where += " AND m.AMOUNT >= :amountMin";
+    binds.amountMin = filters.amountMin;
+  }
+  if (filters.amountMax) {
+    where += " AND m.AMOUNT <= :amountMax";
+    binds.amountMax = filters.amountMax;
+  }
+  if (filters.description) {
+    where += " AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)";
+    binds.description = `%${filters.description}%`;
+  }
+  if (filters.matchedAddress) {
+    where += " AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
+    binds.matchedAddress = `%${filters.matchedAddress}%`;
+  }
 
   return { where, binds };
 }
@@ -1035,18 +1439,22 @@ export async function getMainInvoiceFile(txnId) {
     const result = await conn.execute(
       `SELECT INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE
        FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
-      { txnId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { txnId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const row = result.rows?.[0];
     if (!row || !row.INVOICE_FILE) return null;
     const buffer = await readLobToBuffer(row.INVOICE_FILE);
     if (!buffer) return null;
-    return { buffer, fileName: row.INVOICE_FILE_NAME, fileType: row.INVOICE_FILE_TYPE };
+    return {
+      buffer,
+      fileName: row.INVOICE_FILE_NAME,
+      fileType: row.INVOICE_FILE_TYPE,
+    };
   } finally {
     await conn.close();
   }
 }
-
 
 // export async function getProjectReport(pId) {
 //   const result = await poolExecute(
@@ -1062,8 +1470,6 @@ export async function getMainInvoiceFile(txnId) {
 //   );
 //   return result.rows || [];
 // }
-
-
 
 // export async function getProjectReport(pId) {
 //   const result = await poolExecute(
@@ -1099,14 +1505,15 @@ export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
             m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
-            m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.APPROVED_DATE,
+            m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE,
             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
      FROM PM.PM_STATEMENT_MAIN m
      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
      LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
      WHERE m.P_ID = :pId
      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
-    { pId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    { pId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const transactions = result.rows || [];
 
@@ -1115,16 +1522,15 @@ export async function getProjectReport(pId) {
   const workerTotals = workerLogs.reduce(
     (acc, r) => {
       acc.totalHours += Number(r.HOURS_WORKED) || 0;
-      acc.totalDays  += Number(r.DAYS_WORKED)  || 0;
+      acc.totalDays += Number(r.DAYS_WORKED) || 0;
       acc.totalAmount += Number(r.AMOUNT) || 0;
       return acc;
     },
-    { totalHours: 0, totalDays: 0, totalAmount: 0 }
+    { totalHours: 0, totalDays: 0, totalAmount: 0 },
   );
 
   return { transactions, workerLogs, workerTotals };
 }
-
 
 export async function disapproveTransaction(txnId) {
   const conn = await getConnection();
@@ -1132,29 +1538,30 @@ export async function disapproveTransaction(txnId) {
     // Get the STAGING_ID from MAIN
     const mainResult = await conn.execute(
       `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
-      { txnId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { txnId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
     const row = mainResult.rows?.[0];
     if (!row) {
-      throw new Error('Transaction not found.');
+      throw new Error("Transaction not found.");
     }
 
     const stagingId = row.STAGING_ID;
     if (!stagingId) {
-      throw new Error('This is a legacy record and cannot be disapproved.');
+      throw new Error("This is a legacy record and cannot be disapproved.");
     }
 
     // Delete from MAIN
     await conn.execute(
       `DELETE FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
-      { txnId }
+      { txnId },
     );
 
     // Update STAGING back to PENDING
     await conn.execute(
       `UPDATE PM.PM_STATEMENT_STAGING SET STATUS = 'PENDING' WHERE STAGING_ID = :stagingId`,
-      { stagingId }
+      { stagingId },
     );
 
     await conn.commit();
@@ -1170,7 +1577,6 @@ export async function disapproveTransaction(txnId) {
 // ── Multi-invoice support (PM_STATEMENT_INVOICE + PM_STATEMENT_INVOICE_FILE) ──
 
 // list invoices (with their files) for a given row
-
 
 // export async function getInvoicesForParent(parentType, parentId) {
 //   let effectiveType = parentType;
@@ -1222,15 +1628,16 @@ export async function getInvoicesForParent(parentType, parentId) {
   let effectiveType = parentType;
   let effectiveId = parentId;
 
-  if (parentType === 'MAIN') {
+  if (parentType === "MAIN") {
     const mainResult = await poolExecute(
       `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
-      { txnId: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { txnId: parentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const stagingId = mainResult.rows?.[0]?.STAGING_ID;
     // legacy MAIN rows with no STAGING_ID keep their invoices parented to MAIN
     if (stagingId) {
-      effectiveType = 'STAGING';
+      effectiveType = "STAGING";
       effectiveId = stagingId;
     }
   }
@@ -1242,15 +1649,18 @@ export async function getInvoicesForParent(parentType, parentId) {
      LEFT JOIN PM.USERS cu ON cu.ID = i.CREATED_BY
      WHERE i.PARENT_TYPE = :parentType AND i.PARENT_ID = :parentId
      ORDER BY i.CREATION_DATE DESC`,
-    { parentType: effectiveType, parentId: effectiveId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    { parentType: effectiveType, parentId: effectiveId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const invoices = invoicesResult.rows || [];
   if (invoices.length === 0) return [];
 
   const invoiceIds = invoices.map((inv) => inv.INVOICE_ID);
-  const placeholders = invoiceIds.map((_, i) => `:id${i}`).join(',');
+  const placeholders = invoiceIds.map((_, i) => `:id${i}`).join(",");
   const binds = {};
-  invoiceIds.forEach((id, i) => { binds[`id${i}`] = id; });
+  invoiceIds.forEach((id, i) => {
+    binds[`id${i}`] = id;
+  });
 
   const filesResult = await poolExecute(
     `SELECT f.FILE_ID, f.INVOICE_ID, f.FILE_NAME, f.FILE_TYPE, f.FILE_SIZE, f.CREATION_DATE,
@@ -1259,7 +1669,8 @@ export async function getInvoicesForParent(parentType, parentId) {
      LEFT JOIN PM.USERS uu ON uu.ID = f.UPLOADED_BY
      WHERE f.INVOICE_ID IN (${placeholders})
      ORDER BY f.CREATION_DATE ASC`,
-    binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    binds,
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const files = filesResult.rows || [];
 
@@ -1269,7 +1680,6 @@ export async function getInvoicesForParent(parentType, parentId) {
   }));
 }
 // create a new invoice (with invoice no) + its files, in one go
-
 
 // export async function addInvoiceForParent(parentType, parentId, invoiceNo, filesArray, userId) {
 //   let effectiveType = parentType;
@@ -1325,18 +1735,25 @@ export async function getInvoicesForParent(parentType, parentId) {
 //   }
 // }
 
-export async function addInvoiceForParent(parentType, parentId, invoiceNo, filesArray, userId) {
+export async function addInvoiceForParent(
+  parentType,
+  parentId,
+  invoiceNo,
+  filesArray,
+  userId,
+) {
   let effectiveType = parentType;
   let effectiveId = parentId;
 
-  if (parentType === 'MAIN') {
+  if (parentType === "MAIN") {
     const mainResult = await poolExecute(
       `SELECT STAGING_ID FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
-      { txnId: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { txnId: parentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const stagingId = mainResult.rows?.[0]?.STAGING_ID;
     if (stagingId) {
-      effectiveType = 'STAGING';
+      effectiveType = "STAGING";
       effectiveId = stagingId;
     }
   }
@@ -1348,10 +1765,12 @@ export async function addInvoiceForParent(parentType, parentId, invoiceNo, files
        VALUES (:parentType, :parentId, :invoiceNo, :userId)
        RETURNING INVOICE_ID INTO :newInvoiceId`,
       {
-        parentType: effectiveType, parentId: effectiveId, invoiceNo: invoiceNo || null,
+        parentType: effectiveType,
+        parentId: effectiveId,
+        invoiceNo: invoiceNo || null,
         userId: userId || null,
-        newInvoiceId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
-      }
+        newInvoiceId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
+      },
     );
     const invoiceId = insertResult.outBinds.newInvoiceId[0];
 
@@ -1367,7 +1786,7 @@ export async function addInvoiceForParent(parentType, parentId, invoiceNo, files
           fileType: file.mimetype,
           fileSize: file.size,
           userId: userId || null,
-        }
+        },
       );
     }
 
@@ -1409,7 +1828,8 @@ export async function addFileToInvoice(invoiceId, file, userId) {
       fileType: file.mimetype,
       fileSize: file.size,
       userId: userId || null,
-    }, { autoCommit: true }
+    },
+    { autoCommit: true },
   );
   return { uploaded: true };
 }
@@ -1418,7 +1838,8 @@ export async function addFileToInvoice(invoiceId, file, userId) {
 export async function deleteInvoiceFileRow(fileId) {
   await poolExecute(
     `DELETE FROM PM.PM_STATEMENT_INVOICE_FILE WHERE FILE_ID = :fileId`,
-    { fileId }, { autoCommit: true }
+    { fileId },
+    { autoCommit: true },
   );
   return { deleted: true };
 }
@@ -1429,11 +1850,11 @@ export async function deleteInvoice(invoiceId) {
   try {
     await conn.execute(
       `DELETE FROM PM.PM_STATEMENT_INVOICE_FILE WHERE INVOICE_ID = :invoiceId`,
-      { invoiceId }
+      { invoiceId },
     );
     await conn.execute(
       `DELETE FROM PM.PM_STATEMENT_INVOICE WHERE INVOICE_ID = :invoiceId`,
-      { invoiceId }
+      { invoiceId },
     );
     await conn.commit();
     return { deleted: true };
@@ -1452,7 +1873,8 @@ export async function getInvoiceFileById(fileId) {
     const result = await conn.execute(
       `SELECT FILE_DATA, FILE_NAME, FILE_TYPE
        FROM PM.PM_STATEMENT_INVOICE_FILE WHERE FILE_ID = :fileId`,
-      { fileId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { fileId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const row = result.rows?.[0];
     if (!row || !row.FILE_DATA) return null;
@@ -1464,24 +1886,25 @@ export async function getInvoiceFileById(fileId) {
   }
 }
 
-
 export async function getTransactionById(parentType, parentId) {
   const type = String(parentType).toUpperCase();
 
-  if (type === 'STAGING') {
+  if (type === "STAGING") {
     const result = await poolExecute(
       `SELECT STAGING_ID, TXN_DATE, AMOUNT, DESCRIPTION
        FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :id`,
-      { id: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { id: parentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     return result.rows?.[0] || null;
   }
 
-  if (type === 'MAIN') {
+  if (type === "MAIN") {
     const result = await poolExecute(
       `SELECT TXN_ID, TXN_DATE, AMOUNT, DESCRIPTION
        FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :id`,
-      { id: parentId }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { id: parentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     return result.rows?.[0] || null;
   }
