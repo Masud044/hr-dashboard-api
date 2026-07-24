@@ -960,6 +960,63 @@ export async function deleteInvoiceFile(stagingId) {
   return { deleted: true };
 }
 
+// ── Permanently delete a PENDING staging row (Non-banking only, from UI) ──
+export async function deleteStagingRow(stagingId) {
+  const conn = await getConnection();
+  try {
+    // guard: don't allow deleting an already-approved row
+    const check = await conn.execute(
+      `SELECT STATUS FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :stagingId`,
+      { stagingId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const row = check.rows?.[0];
+    if (!row) throw new Error("Staging row not found.");
+    if (row.STATUS === "APPROVED")
+      throw new Error("Approved rows cannot be deleted.");
+
+    // clean up any multi-invoice files/records parented to this staging row
+    const invoiceIdsResult = await conn.execute(
+      `SELECT INVOICE_ID FROM PM.PM_STATEMENT_INVOICE
+       WHERE PARENT_TYPE = 'STAGING' AND PARENT_ID = :stagingId`,
+      { stagingId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const invoiceIds = (invoiceIdsResult.rows || []).map((r) => r.INVOICE_ID);
+
+    if (invoiceIds.length > 0) {
+      const placeholders = invoiceIds.map((_, i) => `:id${i}`).join(",");
+      const binds = {};
+      invoiceIds.forEach((id, i) => {
+        binds[`id${i}`] = id;
+      });
+
+      await conn.execute(
+        `DELETE FROM PM.PM_STATEMENT_INVOICE_FILE WHERE INVOICE_ID IN (${placeholders})`,
+        binds,
+      );
+      await conn.execute(
+        `DELETE FROM PM.PM_STATEMENT_INVOICE WHERE INVOICE_ID IN (${placeholders})`,
+        binds,
+      );
+    }
+
+    // delete the staging row itself (this also clears its own INVOICE_FILE BLOB column)
+    await conn.execute(
+      `DELETE FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :stagingId`,
+      { stagingId },
+    );
+
+    await conn.commit();
+    return { deleted: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
 async function readLobToBuffer(lobOrBuffer) {
   if (!lobOrBuffer) return null;
   if (Buffer.isBuffer(lobOrBuffer)) return lobOrBuffer;

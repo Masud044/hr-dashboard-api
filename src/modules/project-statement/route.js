@@ -106,6 +106,9 @@ router.delete('/invoices/:invoiceId',
   asyncHandler((req, res) => { req.params.action = 'deleteInvoiceGroup'; return statementHandler(req, res); })
 );
 
+router.delete('/staging/:stagingId',
+  asyncHandler((req, res) => { req.params.action = 'deleteStagingRow'; return statementHandler(req, res); })
+);
 // ── Individual file management within an invoice group ──
 // NOTE: these must be declared before any conflicting generic routes,
 // and use paths that match what InvoiceSheet.jsx actually calls.
