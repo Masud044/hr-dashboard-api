@@ -1,3 +1,4 @@
+// src\modules\user-management\user-management.service.js
 import { getConnection } from "../../config/db.js";
 import oracledb from "oracledb";
 import bcrypt from "bcryptjs";
@@ -33,14 +34,12 @@ export const createUser = async (data) => {
 };
 
 export const getAllUsers = async ({
-  page         = 1,
-  limit        = 20,
-  search       = "",
-  sortBy       = "CREATED_AT",
-  sortOrder    = "DESC",
-  roleId       = "",
-  moduleId     = "",
-  permissionId = "",
+  page      = 1,
+  limit     = 20,
+  search    = "",
+  sortBy    = "CREATED_AT",
+  sortOrder = "DESC",
+  roleId    = "",
 } = {}) => {
   const conn = await getConnection();
   try {
@@ -67,28 +66,10 @@ export const getAllUsers = async ({
       binds.ROLE_ID = parseInt(roleId);
     }
 
-    if (permissionId) {
-      conditions.push(`EXISTS (
-        SELECT 1 FROM USER_PERMISSIONS up2
-        WHERE up2.USER_ID = u.ID AND up2.PERMISSION_ID = :PERMISSION_ID
-      )`);
-      binds.PERMISSION_ID = parseInt(permissionId);
-    }
-
-    if (moduleId) {
-      conditions.push(`EXISTS (
-        SELECT 1 FROM USER_PERMISSIONS up2
-        JOIN PERMISSIONS p2 ON up2.PERMISSION_ID = p2.ID
-        WHERE up2.USER_ID = u.ID AND p2.MODULE_ID = :MODULE_ID
-      )`);
-      binds.MODULE_ID = parseInt(moduleId);
-    }
-
     const whereClause = conditions.length > 0
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
 
-    // ── Count query ──────────────────────────────────────────────────────────
     const countResult = await conn.execute(
       `SELECT COUNT(*) AS TOTAL
        FROM USERS u
@@ -99,7 +80,6 @@ export const getAllUsers = async ({
     const total      = countResult.rows[0].TOTAL;
     const totalPages = Math.ceil(total / parseInt(limit)) || 1;
 
-    // ── Data query ───────────────────────────────────────────────────────────
     const dataResult = await conn.execute(
       `SELECT *
        FROM (
