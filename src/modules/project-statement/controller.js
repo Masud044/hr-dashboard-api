@@ -27,6 +27,7 @@ import {
   deleteInvoice,
   getInvoiceFileById,
   getTransactionById,
+  deleteStagingRow
 } from "./service.js";
 
 export async function statementHandler(req, res) {
@@ -270,6 +271,21 @@ export async function statementHandler(req, res) {
         .status(200)
         .json({ success: true, message: "Invoice file deleted.", ...result });
     }
+    case "deleteStagingRow": {
+  const { stagingId } = req.params;
+  if (!stagingId)
+    return res
+      .status(400)
+      .json({ success: false, message: "stagingId is required." });
+  try {
+    const result = await deleteStagingRow(stagingId);
+    return res
+      .status(200)
+      .json({ success: true, message: "Row deleted.", ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+}
 
     case "getInvoiceFile": {
       const { stagingId } = req.params;
