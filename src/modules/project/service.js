@@ -279,7 +279,7 @@ export async function searchProject(p_id) {
         TO_CHAR(P_ENTATIVE_START_DATE, 'YYYY-MM-DD') AS P_ENTATIVE_START_DATE,
         TO_CHAR(P_TENTATIVE_END_DATE,  'YYYY-MM-DD') AS P_TENTATIVE_END_DATE,
         P_CODE, DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS,
-        SORT_ORDER, PROJECT_STATUS
+        SORT_ORDER, PROJECT_STATUS, MARGIN_PERCENT
       FROM PM.PM_PROJECT`;
 
     const binds = {};
@@ -601,6 +601,33 @@ export async function updateProjectStatus(p_id, status, updated_by) {
         p_id:        Number(p_id),
       },
       { autoCommit: true } // Simple update, autoCommit is perfectly fine here
+    );
+    return result.rowsAffected;
+  } catch (err) {
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// QUICK MARGIN UPDATE (Lightweight)
+// ─────────────────────────────────────────────
+export async function updateProjectMargin(p_id, margin, updated_by) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `UPDATE PM.PM_PROJECT 
+       SET MARGIN_PERCENT = :margin, 
+           UPDATE_DATE = SYSDATE, 
+           UPDATED_BY = :updated_by 
+       WHERE P_ID = :p_id`,
+      {
+        margin:      margin,
+        updated_by:  Number(updated_by || 0),
+        p_id:        Number(p_id),
+      },
+      { autoCommit: true }
     );
     return result.rowsAffected;
   } catch (err) {

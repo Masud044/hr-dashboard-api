@@ -9,6 +9,7 @@ import {
   handleMoveProject,
   handleReorderProject,
    handleUpdateProjectStatus,
+   handleUpdateProjectMargin
 } from "./controller.js";
 
 const router = Router();
@@ -28,5 +29,6 @@ router.patch("/:id/move",    asyncHandler(handleMoveProject));
 router.patch("/:id/reorder", asyncHandler(handleReorderProject));
 
 router.patch("/:id/status",  asyncHandler(handleUpdateProjectStatus));
+router.patch("/:id/margin",  asyncHandler(handleUpdateProjectMargin));
 
 export default router;
