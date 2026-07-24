@@ -1,3 +1,4 @@
+// src\modules\user-management\user-management.controller.js
 import * as userService from "./user-management.service.js";
 
 // ─── USERS ────────────────────────────────────────────────────────────────────
