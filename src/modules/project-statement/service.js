@@ -1501,12 +1501,44 @@ export async function getMainInvoiceFile(txnId) {
 
 //   return { transactions, workerLogs, workerTotals };
 // }
+// export async function getProjectReport(pId) {
+//   const result = await poolExecute(
+//     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
+//             m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
+//             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE,
+//             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
+//      FROM PM.PM_STATEMENT_MAIN m
+//      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
+//      LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
+//      WHERE m.P_ID = :pId
+//      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
+//     { pId },
+//     { outFormat: oracledb.OUT_FORMAT_OBJECT },
+//   );
+//   const transactions = result.rows || [];
+
+//   const workerLogs = await getWorkerCostsByProject(pId);
+
+//   const workerTotals = workerLogs.reduce(
+//     (acc, r) => {
+//       acc.totalHours += Number(r.HOURS_WORKED) || 0;
+//       acc.totalDays += Number(r.DAYS_WORKED) || 0;
+//       acc.totalAmount += Number(r.AMOUNT) || 0;
+//       return acc;
+//     },
+//     { totalHours: 0, totalDays: 0, totalAmount: 0 },
+//   );
+
+//   return { transactions, workerLogs, workerTotals };
+// }
+
+
 export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
             m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE,
-            p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE
+            p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE, p.MARGIN_PERCENT
      FROM PM.PM_STATEMENT_MAIN m
      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
      LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
@@ -1529,7 +1561,9 @@ export async function getProjectReport(pId) {
     { totalHours: 0, totalDays: 0, totalAmount: 0 },
   );
 
-  return { transactions, workerLogs, workerTotals };
+  const marginPercent = transactions.length > 0 ? transactions[0].MARGIN_PERCENT : null;
+
+  return { transactions, workerLogs, workerTotals, marginPercent };
 }
 
 export async function disapproveTransaction(txnId) {

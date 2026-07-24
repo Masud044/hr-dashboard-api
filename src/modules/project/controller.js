@@ -10,6 +10,7 @@ import {
   sendBulkEmailToContractors,
   reorderProject,
    updateProjectStatus,
+   updateProjectMargin,
   moveProject,
 } from "./service.js";
 
@@ -379,5 +380,52 @@ export async function handleUpdateProjectStatus(req, res) {
   } catch (err) {
     console.error("Status update error:", err);
     return res.status(500).json({ success: false, message: "Failed to update project status." });
+  }
+}
+
+
+// ─────────────────────────────────────────────
+// PATCH /project/:id/margin
+// Body: { MARGIN_PERCENT: number, UPDATED_BY?: number }
+// ─────────────────────────────────────────────
+export async function handleUpdateProjectMargin(req, res) {
+  const p_id = Number(req.params.id);
+  if (!p_id || p_id <= 0) {
+    return res.status(400).json({ success: false, message: "Invalid project ID." });
+  }
+
+  const { MARGIN_PERCENT, UPDATED_BY } = req.body;
+
+  if (MARGIN_PERCENT === undefined || MARGIN_PERCENT === null || isNaN(Number(MARGIN_PERCENT))) {
+    return res.status(400).json({
+      success: false,
+      message: "MARGIN_PERCENT must be a number.",
+    });
+  }
+
+  const margin = Number(MARGIN_PERCENT);
+  if (margin < 0 || margin > 100) {
+    return res.status(400).json({
+      success: false,
+      message: "MARGIN_PERCENT must be between 0 and 100.",
+    });
+  }
+
+  const updated_by = Number(UPDATED_BY || 0);
+
+  try {
+    const rowsAffected = await updateProjectMargin(p_id, margin, updated_by);
+
+    if (rowsAffected === 0) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    return res.json({
+      success: true,
+      message: "Project margin updated successfully.",
+    });
+  } catch (err) {
+    console.error("Margin update error:", err);
+    return res.status(500).json({ success: false, message: "Failed to update project margin." });
   }
 }
