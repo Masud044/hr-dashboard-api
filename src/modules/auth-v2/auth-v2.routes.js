@@ -5,12 +5,10 @@ import { protectRouteV2 } from "./auth-v2.middleware.js";
 
 const router = express.Router();
 
-// ── Public ────────────────────────────────────
 router.post("/register", registerV2);
 router.post("/login",    loginV2);
-router.post("/logout",   logoutV2);   // stateless; client drops token
+router.post("/logout",   logoutV2);
 
-// ── Protected: any authenticated user ─────────
 router.get("/me", protectRouteV2, (req, res) => {
   return res.json({
     status: "success",
@@ -18,9 +16,10 @@ router.get("/me", protectRouteV2, (req, res) => {
       user: {
         id:          req.user.id,
         username:    req.user.username,
-        employee_id: req.user.employee_id,
+        userType:    req.user.userType,
+        refId:       req.user.refId,
         roles:       req.user.roles,
-         permissions: req.user.permissions,
+        permissions: req.user.permissions,
       },
     },
   });

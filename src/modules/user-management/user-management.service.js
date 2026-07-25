@@ -9,25 +9,68 @@ const SALT_ROUNDS = 10;
 //  USERS
 // ─────────────────────────────────────────
 
+// export const createUser = async (data) => {
+//   const conn = await getConnection();
+//   try {
+//     const passwordHash = await bcrypt.hash(data.PASSWORD, SALT_ROUNDS);
+//     const result = await conn.execute(
+//       `INSERT INTO USERS
+//          (USERNAME, PASSWORD_HASH, STATUS, CREATED_AT)
+//        VALUES
+//          (:USERNAME, :PASSWORD_HASH, :STATUS, SYSDATE)
+//        RETURNING ID INTO :ID`,
+//       {
+//         USERNAME:      data.USERNAME,
+//         PASSWORD_HASH: passwordHash,
+//         STATUS:        data.STATUS ?? "ACTIVE",
+//         ID:            { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+//       },
+//       { autoCommit: true }
+//     );
+//     return { id: result.outBinds.ID[0] };
+//   } finally {
+//     await conn.close();
+//   }
+// };
 export const createUser = async (data) => {
   const conn = await getConnection();
   try {
     const passwordHash = await bcrypt.hash(data.PASSWORD, SALT_ROUNDS);
+
     const result = await conn.execute(
       `INSERT INTO USERS
-         (USERNAME, PASSWORD_HASH, STATUS, CREATED_AT)
+         (USERNAME, PASSWORD_HASH, STATUS, USER_TYPE, REF_ID, CREATED_AT)
        VALUES
-         (:USERNAME, :PASSWORD_HASH, :STATUS, SYSDATE)
+         (:USERNAME, :PASSWORD_HASH, :STATUS, :USER_TYPE, :REF_ID, SYSDATE)
        RETURNING ID INTO :ID`,
       {
         USERNAME:      data.USERNAME,
         PASSWORD_HASH: passwordHash,
         STATUS:        data.STATUS ?? "ACTIVE",
+        USER_TYPE:     data.USER_TYPE ?? null,
+        REF_ID:        data.REF_ID ?? null,
         ID:            { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
       },
-      { autoCommit: true }
+      { autoCommit: false }
     );
-    return { id: result.outBinds.ID[0] };
+
+    const userId = result.outBinds.ID[0];
+
+    const roleIds = Array.isArray(data.roleIds) ? data.roleIds : [];
+    for (const roleId of roleIds) {
+      await conn.execute(
+        `INSERT INTO USER_ROLES (USER_ID, ROLE_ID, ASSIGNED_AT)
+         VALUES (:USER_ID, :ROLE_ID, SYSDATE)`,
+        { USER_ID: userId, ROLE_ID: parseInt(roleId) },
+        { autoCommit: false }
+      );
+    }
+
+    await conn.commit();
+    return { id: userId };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
   } finally {
     await conn.close();
   }
@@ -107,7 +150,7 @@ export const getUserById = async (id) => {
   const conn = await getConnection();
   try {
     const userResult = await conn.execute(
-      `SELECT u.ID, u.USERNAME, u.STATUS, u.CREATED_AT, u.UPDATED_AT
+      `SELECT u.ID, u.USERNAME, u.STATUS, u.USER_TYPE, u.REF_ID, u.CREATED_AT, u.UPDATED_AT
        FROM USERS u
        WHERE u.ID = :ID`,
       { ID: parseInt(id) },
@@ -115,6 +158,24 @@ export const getUserById = async (id) => {
     );
     const user = userResult.rows[0] ?? null;
     if (!user) return null;
+
+    // Resolve refName based on USER_TYPE
+    let refName = null;
+    if (user.USER_TYPE === "WORKER" && user.REF_ID) {
+      const w = await conn.execute(
+        `SELECT WORKER_NAME FROM PM.PM_WORKER WHERE WORKER_ID = :id`,
+        { id: user.REF_ID },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      refName = w.rows[0]?.WORKER_NAME ?? null;
+    } else if (user.USER_TYPE === "OWNER" && user.REF_ID) {
+      const o = await conn.execute(
+        `SELECT O_NAME FROM PM_OWNER_INFO WHERE ID = :id`,
+        { id: user.REF_ID },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      refName = o.rows[0]?.O_NAME ?? null;
+    }
 
     const rolesResult = await conn.execute(
       `SELECT r.ID, r.ROLE_NAME, r.DESCRIPTION, ur.ASSIGNED_AT
@@ -141,6 +202,7 @@ export const getUserById = async (id) => {
 
     return {
       ...user,
+      refName,
       roles:       rolesResult.rows,
       permissions: permissionsResult.rows,
     };
@@ -156,12 +218,16 @@ export const updateUser = async (id, data) => {
       `UPDATE USERS
           SET USERNAME   = :USERNAME,
               STATUS     = :STATUS,
+              USER_TYPE  = :USER_TYPE,
+              REF_ID     = :REF_ID,
               UPDATED_AT = SYSDATE
         WHERE ID = :ID`,
       {
-        ID:       parseInt(id),
-        USERNAME: data.USERNAME,
-        STATUS:   data.STATUS ?? "ACTIVE",
+        ID:        parseInt(id),
+        USERNAME:  data.USERNAME,
+        STATUS:    data.STATUS ?? "ACTIVE",
+        USER_TYPE: data.USER_TYPE ?? null,
+        REF_ID:    data.REF_ID ?? null,
       },
       { autoCommit: true }
     );
