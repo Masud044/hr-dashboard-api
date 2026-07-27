@@ -713,6 +713,11 @@ function buildStagingWhere(filters = {}) {
     where += " AND AMOUNT <= :amountMax";
     binds.amountMax = filters.amountMax;
   }
+    // NEW: exact amount search, sign-agnostic (300 matches both 300 and -300)
+  if (filters.amount) {
+    where += " AND ABS(AMOUNT) = :amount";
+    binds.amount = Math.abs(Number(filters.amount));
+  }
   if (filters.description) {
     where += " AND UPPER(DESCRIPTION) LIKE UPPER(:description)";
     binds.description = `%${filters.description}%`;
@@ -1478,6 +1483,11 @@ function buildMainWhere(filters = {}) {
   if (filters.amountMax) {
     where += " AND m.AMOUNT <= :amountMax";
     binds.amountMax = filters.amountMax;
+  }
+  // NEW: exact amount search, sign-agnostic
+  if (filters.amount) {
+    where += " AND ABS(m.AMOUNT) = :amount";
+    binds.amount = Math.abs(Number(filters.amount));
   }
   if (filters.description) {
     where += " AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)";

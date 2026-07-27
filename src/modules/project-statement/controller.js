@@ -71,6 +71,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
+        amount: req.query.amount || null,   // ← NEW
         description: req.query.description || null,
         category: req.query.category || null,
         categories: req.query.categories || null, // NEW: comma-separated multi-select
@@ -107,6 +108,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
+        amount: req.query.amount || null,   // ← NEW
         description: req.query.description || null,
         matchedAddress: req.query.matchedAddress || null,
       };
@@ -367,6 +369,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
+        amount: req.query.amount || null,   // ← NEW
         description: req.query.description || null,
         matchedAddress: req.query.matchedAddress || null,
       };
