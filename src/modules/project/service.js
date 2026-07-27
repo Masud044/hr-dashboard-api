@@ -266,7 +266,9 @@ export async function insertProject(data, files = []) {
 // ─────────────────────────────────────────────
 // PROJECT SEARCH
 // ─────────────────────────────────────────────
-export async function searchProject(p_id) {
+
+
+export async function searchProject(p_id, { ownerId } = {}) {
   const connection = await getConnection();
   try {
     let sql = `
@@ -283,9 +285,24 @@ export async function searchProject(p_id) {
       FROM PM.PM_PROJECT`;
 
     const binds = {};
+    const conditions = [];
+
     if (p_id > 0) {
-      sql += " WHERE P_ID = :p_id_bv";
+      conditions.push("P_ID = :p_id_bv");
       binds.p_id_bv = p_id;
+    }
+
+    // Owner scoping — only applied when ownerId is passed
+    if (ownerId) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM PM.PM_OWNER_INFO oi
+        WHERE oi.ID = :owner_id_bv AND oi.PROJECT_ID = PM_PROJECT.P_ID
+      )`);
+      binds.owner_id_bv = Number(ownerId);
+    }
+
+    if (conditions.length) {
+      sql += " WHERE " + conditions.join(" AND ");
     }
 
     sql += " ORDER BY SORT_ORDER";
