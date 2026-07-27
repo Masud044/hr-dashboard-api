@@ -104,7 +104,7 @@ export async function insertProject(data, files = []) {
     await connection.execute(
       `UPDATE PM.PM_PROJECT SET SORT_ORDER = SORT_ORDER + 1`,
       {},
-      { autoCommit: false }
+      { autoCommit: false },
     );
 
     // 1️⃣ Insert project → get P_ID, force SORT_ORDER = 1
@@ -112,35 +112,43 @@ export async function insertProject(data, files = []) {
       `INSERT INTO PM.PM_PROJECT
        (P_NAME, P_TYPE, P_ADDRESS, ADDRESS, STREET, SUBWRB, POSTCODE, STATE, USER_ID, USER_BY, UPDATED_BY,
         LOT, DP, INSURANCE_NO, P_ENTATIVE_START_DATE, P_TENTATIVE_END_DATE, P_CODE,
-        DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS, SORT_ORDER)
+        DESCRIPTION, FILE_PATH, CERT_UPLOAD_STATUS, SORT_ORDER, MARGIN_PERCENT)
        VALUES
        (:P_NAME, :P_TYPE, :P_ADDRESS, :ADDRESS, :STREET, :SUBWRB, :POSTCODE, :STATE, :USER_ID, :USER_BY, :UPDATED_BY,
         :LOT, :DP, :INSURANCE_NO, :P_ENTATIVE_START_DATE, :P_TENTATIVE_END_DATE, :P_CODE,
-        :DESCRIPTION, :FILE_PATH, 'PENDING', 1)
+        :DESCRIPTION, :FILE_PATH, 'PENDING', 1, :MARGIN_PERCENT)
        RETURNING P_ID INTO :NEW_P_ID`,
       {
-        P_NAME:                data.P_NAME ?? "",
-        P_TYPE:                data.P_TYPE ?? null,
-        P_ADDRESS:             data.P_ADDRESS ?? null,
-        ADDRESS:               data.ADDRESS ?? null,
-        STREET:                data.STREET ?? null,
-        SUBWRB:                data.SUBWRB ?? null,
-        POSTCODE:              data.POSTCODE ?? null,
-        STATE:                 data.STATE ?? "NSW",
-        USER_ID:               Number(data.USER_ID ?? 0),
-        USER_BY:               Number(data.USER_BY ?? data.USER_ID ?? 0),
-        UPDATED_BY:            Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
-        LOT:                   data.LOT ?? null,
-        DP:                    data.DP ?? null,
-        INSURANCE_NO:          data.INSURANCE_NO ?? null,
-        P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE ? new Date(data.P_ENTATIVE_START_DATE) : null,
-        P_TENTATIVE_END_DATE:  data.P_TENTATIVE_END_DATE  ? new Date(data.P_TENTATIVE_END_DATE)  : null,
-        P_CODE:                data.P_CODE ?? null,
-        DESCRIPTION:           data.DESCRIPTION ?? null,
-        FILE_PATH:             null,
+        P_NAME: data.P_NAME ?? "",
+        P_TYPE: data.P_TYPE ?? null,
+        P_ADDRESS: data.P_ADDRESS ?? null,
+        ADDRESS: data.ADDRESS ?? null,
+        STREET: data.STREET ?? null,
+        SUBWRB: data.SUBWRB ?? null,
+        POSTCODE: data.POSTCODE ?? null,
+        STATE: data.STATE ?? "NSW",
+        USER_ID: Number(data.USER_ID ?? 0),
+        USER_BY: Number(data.USER_BY ?? data.USER_ID ?? 0),
+        UPDATED_BY: Number(data.UPDATED_BY ?? data.USER_ID ?? 0),
+        LOT: data.LOT ?? null,
+        DP: data.DP ?? null,
+        INSURANCE_NO: data.INSURANCE_NO ?? null,
+        P_ENTATIVE_START_DATE: data.P_ENTATIVE_START_DATE
+          ? new Date(data.P_ENTATIVE_START_DATE)
+          : null,
+        P_TENTATIVE_END_DATE: data.P_TENTATIVE_END_DATE
+          ? new Date(data.P_TENTATIVE_END_DATE)
+          : null,
+        P_CODE: data.P_CODE ?? null,
+        DESCRIPTION: data.DESCRIPTION ?? null,
+        MARGIN_PERCENT:
+          data.MARGIN_PERCENT != null && data.MARGIN_PERCENT !== ""
+            ? Number(data.MARGIN_PERCENT)
+            : 10,
+        FILE_PATH: null,
         NEW_P_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
       },
-      { autoCommit: false }
+      { autoCommit: false },
     );
 
     const P_ID = result.outBinds.NEW_P_ID[0];
@@ -150,7 +158,7 @@ export async function insertProject(data, files = []) {
     await connection.execute(
       `UPDATE PM.PM_PROJECT SET FILE_PATH = :fp WHERE P_ID = :pid`,
       { fp: filePath, pid: P_ID },
-      { autoCommit: false }
+      { autoCommit: false },
     );
 
     // 3️⃣ Contractor Types
@@ -160,7 +168,7 @@ export async function insertProject(data, files = []) {
         `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
          VALUES (:pid, :ctid)`,
         { pid: P_ID, ctid: Number(ctId) },
-        { autoCommit: false }
+        { autoCommit: false },
       );
     }
 
@@ -168,9 +176,9 @@ export async function insertProject(data, files = []) {
     for (const file of files) {
       await _insertMandatoryDoc(connection, {
         P_ID,
-        FILE_NAME:   file.originalname,
-        MIME_TYPE:   file.mimetype,
-        FILE_SIZE:   file.size,
+        FILE_NAME: file.originalname,
+        MIME_TYPE: file.mimetype,
+        FILE_SIZE: file.size,
         FILE_BUFFER: file.buffer,
         CREATION_BY: Number(data.USER_ID ?? 0),
       });
@@ -267,7 +275,6 @@ export async function insertProject(data, files = []) {
 // PROJECT SEARCH
 // ─────────────────────────────────────────────
 
-
 export async function searchProject(p_id, { ownerId } = {}) {
   const connection = await getConnection();
   try {
@@ -323,7 +330,7 @@ export async function searchProject(p_id, { ownerId } = {}) {
          FROM PM.PM_PROJECT_CONTRACTOR_TYPE
          WHERE P_ID = :pid`,
         { pid: p_id },
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );
       proj.CONTRACTOR_TYPES = ctResult.rows || [];
 
@@ -336,7 +343,7 @@ export async function searchProject(p_id, { ownerId } = {}) {
          WHERE P_ID = :pid
          ORDER BY UPLOAD_STATUS DESC, ID`,
         { pid: p_id },
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );
       proj.DOCS = docResult.rows || [];
     }
@@ -357,7 +364,7 @@ export async function getDocBlob(doc_id) {
        FROM PM.PM_PROJECT_DOC
        WHERE ID = :id`,
       { id: Number(doc_id) },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
     if (!result.rows?.length) return null;
@@ -496,16 +503,33 @@ export async function updateProject(data, files = []) {
   const connection = await getConnection();
   try {
     const p_id = Number(data.P_ID || 0);
-    const set   = [];
+    const set = [];
     const binds = {
-      p_id_bv:       p_id,
+      p_id_bv: p_id,
       updated_by_bv: Number(data.UPDATED_BY),
     };
 
-   const stringFields    = ["P_NAME", "P_TYPE", "P_ADDRESS", "ADDRESS", "STREET", "SUBWRB", "POSTCODE", "STATE", "PROJECT_STATUS"];
-    const numberFields    = ["USER_ID"];
-    const nullableStrings = ["LOT", "DP", "INSURANCE_NO", "P_CODE", "DESCRIPTION"];
-    const dateFields      = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
+    const stringFields = [
+      "P_NAME",
+      "P_TYPE",
+      "P_ADDRESS",
+      "ADDRESS",
+      "STREET",
+      "SUBWRB",
+      "POSTCODE",
+      "STATE",
+      "PROJECT_STATUS",
+    ];
+    // const numberFields = ["USER_ID"];
+    const numberFields    = ["USER_ID", "MARGIN_PERCENT"];
+    const nullableStrings = [
+      "LOT",
+      "DP",
+      "INSURANCE_NO",
+      "P_CODE",
+      "DESCRIPTION",
+    ];
+    const dateFields = ["P_ENTATIVE_START_DATE", "P_TENTATIVE_END_DATE"];
 
     for (const field of stringFields) {
       if (Object.prototype.hasOwnProperty.call(data, field)) {
@@ -542,7 +566,9 @@ export async function updateProject(data, files = []) {
     if (set.length <= 2) return 0;
 
     const sql = `UPDATE PM.PM_PROJECT SET ${set.join(", ")} WHERE P_ID = :p_id_bv`;
-    const upResult = await connection.execute(sql, binds, { autoCommit: false });
+    const upResult = await connection.execute(sql, binds, {
+      autoCommit: false,
+    });
 
     // Contractor types পরিবর্তন হলে
     if (Object.prototype.hasOwnProperty.call(data, "CONTRACTOR_TYPE_IDS")) {
@@ -551,7 +577,7 @@ export async function updateProject(data, files = []) {
       await connection.execute(
         `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
         { pid: p_id },
-        { autoCommit: false }
+        { autoCommit: false },
       );
       // পুরনো CERTIFICATE placeholder গুলো (file নেই এমন) মুছে দাও
       await connection.execute(
@@ -559,7 +585,7 @@ export async function updateProject(data, files = []) {
          WHERE P_ID = :pid AND UPLOAD_STATUS = 'PENDING'
            AND UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(DOC_FILE, 11, 1)) = 'CERTIFICATE'`,
         { pid: p_id },
-        { autoCommit: false }
+        { autoCommit: false },
       );
 
       for (const ctId of newIds) {
@@ -567,7 +593,7 @@ export async function updateProject(data, files = []) {
           `INSERT INTO PM.PM_PROJECT_CONTRACTOR_TYPE (P_ID, CONTRACTOR_TYPE_ID)
            VALUES (:pid, :ctid)`,
           { pid: p_id, ctid: Number(ctId) },
-          { autoCommit: false }
+          { autoCommit: false },
         );
         await _insertCertPlaceholder(connection, {
           P_ID: p_id,
@@ -580,10 +606,10 @@ export async function updateProject(data, files = []) {
     // নতুন mandatory files
     for (const file of files) {
       await _insertMandatoryDoc(connection, {
-        P_ID:        p_id,
-        FILE_NAME:   file.originalname,
-        MIME_TYPE:   file.mimetype,
-        FILE_SIZE:   file.size,
+        P_ID: p_id,
+        FILE_NAME: file.originalname,
+        MIME_TYPE: file.mimetype,
+        FILE_SIZE: file.size,
         FILE_BUFFER: file.buffer,
         CREATION_BY: Number(data.UPDATED_BY),
       });
@@ -599,7 +625,6 @@ export async function updateProject(data, files = []) {
   }
 }
 
-
 // ─────────────────────────────────────────────
 // QUICK STATUS UPDATE (Lightweight)
 // ─────────────────────────────────────────────
@@ -613,11 +638,11 @@ export async function updateProjectStatus(p_id, status, updated_by) {
            UPDATED_BY = :updated_by 
        WHERE P_ID = :p_id`,
       {
-        status:      status,
-        updated_by:  Number(updated_by || 0),
-        p_id:        Number(p_id),
+        status: status,
+        updated_by: Number(updated_by || 0),
+        p_id: Number(p_id),
       },
-      { autoCommit: true } // Simple update, autoCommit is perfectly fine here
+      { autoCommit: true }, // Simple update, autoCommit is perfectly fine here
     );
     return result.rowsAffected;
   } catch (err) {
@@ -640,11 +665,11 @@ export async function updateProjectMargin(p_id, margin, updated_by) {
            UPDATED_BY = :updated_by 
        WHERE P_ID = :p_id`,
       {
-        margin:      margin,
-        updated_by:  Number(updated_by || 0),
-        p_id:        Number(p_id),
+        margin: margin,
+        updated_by: Number(updated_by || 0),
+        p_id: Number(p_id),
       },
-      { autoCommit: true }
+      { autoCommit: true },
     );
     return result.rowsAffected;
   } catch (err) {
@@ -692,7 +717,7 @@ export async function deleteProject(p_id) {
     const current = await connection.execute(
       `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :pid`,
       { pid: id },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
     const deletedPosition = current.rows?.[0]?.SORT_ORDER ?? null;
@@ -700,17 +725,17 @@ export async function deleteProject(p_id) {
     await connection.execute(
       `DELETE FROM PM.PM_PROJECT_CONTRACTOR_TYPE WHERE P_ID = :pid`,
       { pid: id },
-      { autoCommit: false }
+      { autoCommit: false },
     );
     await connection.execute(
       `DELETE FROM PM.PM_PROJECT_DOC WHERE P_ID = :pid`,
       { pid: id },
-      { autoCommit: false }
+      { autoCommit: false },
     );
     const result = await connection.execute(
       `DELETE FROM PM.PM_PROJECT WHERE P_ID = :pid`,
       { pid: id },
-      { autoCommit: false }
+      { autoCommit: false },
     );
 
     // 1️⃣ Close the gap: shift every row below the deleted one up by one
@@ -720,7 +745,7 @@ export async function deleteProject(p_id) {
             SET SORT_ORDER = SORT_ORDER - 1
           WHERE SORT_ORDER > :deletedPosition`,
         { deletedPosition },
-        { autoCommit: false }
+        { autoCommit: false },
       );
     }
 
@@ -759,14 +784,14 @@ async function _insertMandatoryDoc(connection, doc) {
       EMPTY_BLOB(), 'UPLOADED', :cby)
      RETURNING DOC_FILE INTO :blob_out`,
     {
-      pid:      doc.P_ID,
-      fname:    doc.FILE_NAME,
-      mime:     doc.MIME_TYPE,
-      fsize:    doc.FILE_SIZE,
-      cby:      doc.CREATION_BY ?? 0,
+      pid: doc.P_ID,
+      fname: doc.FILE_NAME,
+      mime: doc.MIME_TYPE,
+      fsize: doc.FILE_SIZE,
+      cby: doc.CREATION_BY ?? 0,
       blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
     },
-    { autoCommit: false }
+    { autoCommit: false },
   );
 
   // Step 2: BLOB locator এ file buffer লিখে দাও
@@ -787,12 +812,12 @@ async function _insertCertPlaceholder(connection, doc) {
       EMPTY_BLOB(), 'PENDING', :cby)
      RETURNING DOC_FILE INTO :blob_out`,
     {
-      pid:      doc.P_ID,
-      ctid:     doc.CONTRACTOR_TYPE_ID,
-      cby:      doc.CREATION_BY ?? 0,
+      pid: doc.P_ID,
+      ctid: doc.CONTRACTOR_TYPE_ID,
+      cby: doc.CREATION_BY ?? 0,
       blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
     },
-    { autoCommit: false }
+    { autoCommit: false },
   );
 
   const blobLob = insertResult.outBinds.blob_out[0];
@@ -813,8 +838,8 @@ function _writeBufferToBlob(lob, buffer) {
 function _blobToBuffer(lob) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    lob.on("data",  (chunk) => chunks.push(chunk));
-    lob.on("end",   () => resolve(Buffer.concat(chunks)));
+    lob.on("data", (chunk) => chunks.push(chunk));
+    lob.on("end", () => resolve(Buffer.concat(chunks)));
     lob.on("error", reject);
   });
 }
@@ -823,13 +848,14 @@ function _parseIds(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.map(Number).filter(Boolean);
   if (typeof value === "string") {
-    try { return JSON.parse(value).map(Number).filter(Boolean); } catch {
+    try {
+      return JSON.parse(value).map(Number).filter(Boolean);
+    } catch {
       return value.split(",").map(Number).filter(Boolean);
     }
   }
   return [];
 }
-
 
 // ─────────────────────────────────────────────
 // service.js এ এই ফাংশনটা যুক্ত করুন (export করে)
@@ -856,11 +882,11 @@ export async function uploadCertificateDoc(doc_id, file, updated_by) {
        FROM PM.PM_PROJECT_DOC
        WHERE ID = :id`,
       { id: Number(doc_id) },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
     const row = checkResult.rows?.[0];
-    if (!row) return null;                          // doc id ই নেই
+    if (!row) return null; // doc id ই নেই
     if (row.CONTRACTOR_TYPE_ID == null) return null; // এটা mandatory doc, certificate না
     if (row.UPLOAD_STATUS === "UPLOADED") return null; // আগেই আপলোড হয়ে গেছে, re-upload রোধ
 
@@ -876,14 +902,14 @@ export async function uploadCertificateDoc(doc_id, file, updated_by) {
        WHERE ID = :id
        RETURNING DOC_FILE INTO :blob_out`,
       {
-        id:       Number(doc_id),
-        fname:    file.originalname,
-        mime:     file.mimetype,
-        fsize:    file.size,
-        cby:      Number(updated_by ?? 0),
+        id: Number(doc_id),
+        fname: file.originalname,
+        mime: file.mimetype,
+        fsize: file.size,
+        cby: Number(updated_by ?? 0),
         blob_out: { dir: oracledb.BIND_OUT, type: oracledb.BLOB },
       },
-      { autoCommit: false }
+      { autoCommit: false },
     );
 
     // 3️⃣ BLOB locator এ actual file বাফার লিখে দাও
@@ -951,7 +977,12 @@ export async function uploadCertificateDoc(doc_id, file, updated_by) {
 //   }
 // }
 
-export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESSAGE, P_ID }) {
+export async function sendBulkEmailToContractors({
+  CONTRACTOR_IDS,
+  SUBJECT,
+  MESSAGE,
+  P_ID,
+}) {
   const ids = (CONTRACTOR_IDS || []).map(Number).filter(Boolean);
   console.log("🔍 [service] Parsed contractor IDs:", ids);
 
@@ -968,17 +999,23 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
        FROM PM.PM_CONTRACTOR_INFO
        WHERE CONTRATOR_ID IN (${placeholders}) AND EMAIL IS NOT NULL`,
       binds,
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const contractors = result.rows || [];
 
-    console.log(`📋 [service] Found ${contractors.length} contractor(s) with email:`);
+    console.log(
+      `📋 [service] Found ${contractors.length} contractor(s) with email:`,
+    );
     contractors.forEach((c) =>
-      console.log(`   → ID: ${c.CONTRATOR_ID} | Name: ${c.CONTRATOR_NAME} | Email: ${c.EMAIL}`)
+      console.log(
+        `   → ID: ${c.CONTRATOR_ID} | Name: ${c.CONTRATOR_NAME} | Email: ${c.EMAIL}`,
+      ),
     );
 
     if (!contractors.length) {
-      console.log("⚠️ [service] No contractors matched IDs or none have EMAIL set");
+      console.log(
+        "⚠️ [service] No contractors matched IDs or none have EMAIL set",
+      );
       return { sent: 0, failed: 0, total: 0 };
     }
 
@@ -986,7 +1023,8 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
     if (P_ID) {
       const projRes = await connection.execute(
         `SELECT P_NAME, P_ADDRESS FROM PM.PM_PROJECT WHERE P_ID = :pid`,
-        { pid: Number(P_ID) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        { pid: Number(P_ID) },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
       );
       project = projRes.rows?.[0] || null;
     }
@@ -1002,17 +1040,21 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
             projectName: project?.P_NAME,
             projectAddress: project?.P_ADDRESS,
           }),
-        })
-      )
+        }),
+      ),
     );
 
     console.log("───── 📬 Per-Email Result ─────");
     results.forEach((r, i) => {
       const c = contractors[i];
       if (r.status === "fulfilled") {
-        console.log(`✅ SENT   → ${c.EMAIL} (${c.CONTRATOR_NAME}) | messageId: ${r.value?.messageId}`);
+        console.log(
+          `✅ SENT   → ${c.EMAIL} (${c.CONTRATOR_NAME}) | messageId: ${r.value?.messageId}`,
+        );
       } else {
-        console.log(`❌ FAILED → ${c.EMAIL} (${c.CONTRATOR_NAME}) | reason: ${r.reason?.message}`);
+        console.log(
+          `❌ FAILED → ${c.EMAIL} (${c.CONTRATOR_NAME}) | reason: ${r.reason?.message}`,
+        );
       }
     });
     console.log("───────────────────────────────");
@@ -1024,9 +1066,6 @@ export async function sendBulkEmailToContractors({ CONTRACTOR_IDS, SUBJECT, MESS
   }
 }
 
-
-
-
 // ─────────────────────────────────────────────
 // REORDER: shift SORT_ORDER for a project to a new position
 // ─────────────────────────────────────────────
@@ -1034,7 +1073,7 @@ async function reorderProjectQuery(connection, p_id, newPosition) {
   const current = await connection.execute(
     `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :id`,
     { id: Number(p_id) },
-    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
 
   if (!current.rows.length) {
@@ -1046,7 +1085,7 @@ async function reorderProjectQuery(connection, p_id, newPosition) {
   const countResult = await connection.execute(
     `SELECT COUNT(*) AS TOTAL FROM PM.PM_PROJECT`,
     {},
-    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
   const totalCount = countResult.rows[0].TOTAL;
 
@@ -1062,7 +1101,7 @@ async function reorderProjectQuery(connection, p_id, newPosition) {
   await connection.execute(
     `UPDATE PM.PM_PROJECT SET SORT_ORDER = -1 WHERE P_ID = :id`,
     { id: Number(p_id) },
-    { autoCommit: false }
+    { autoCommit: false },
   );
 
   if (target < oldPosition) {
@@ -1071,7 +1110,7 @@ async function reorderProjectQuery(connection, p_id, newPosition) {
           SET SORT_ORDER = SORT_ORDER + 1
         WHERE SORT_ORDER >= :target AND SORT_ORDER < :oldPosition`,
       { target, oldPosition },
-      { autoCommit: false }
+      { autoCommit: false },
     );
   } else {
     await connection.execute(
@@ -1079,14 +1118,14 @@ async function reorderProjectQuery(connection, p_id, newPosition) {
           SET SORT_ORDER = SORT_ORDER - 1
         WHERE SORT_ORDER > :oldPosition AND SORT_ORDER <= :target`,
       { target, oldPosition },
-      { autoCommit: false }
+      { autoCommit: false },
     );
   }
 
   await connection.execute(
     `UPDATE PM.PM_PROJECT SET SORT_ORDER = :target WHERE P_ID = :id`,
     { target, id: Number(p_id) },
-    { autoCommit: false }
+    { autoCommit: false },
   );
 
   return { p_id, oldPosition, newPosition: target, moved: true };
@@ -1114,7 +1153,7 @@ export async function moveProject(p_id, direction) {
     const current = await connection.execute(
       `SELECT SORT_ORDER FROM PM.PM_PROJECT WHERE P_ID = :id`,
       { id: Number(p_id) },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
 
     if (!current.rows.length) {
