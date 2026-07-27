@@ -64,10 +64,20 @@ export async function handleProject(req, res) {
     return res.status(201).json({ success: true, message: "Project created.", P_ID });
   }
 
+  
+
   // ── GET  ─────────────────────────────────────
   if (req.method === "GET") {
     const p_id = Number(req.query.p_id || 0);
-    const data = await searchProject(p_id);
+
+    // req.user is populated only if protectRoute middleware runs (not yet enabled here).
+    // Falls back to query params for now — INSECURE, dev-only until middleware is added.
+    const userType = req.user?.userType || req.query.userType;
+    const ownerId  = req.user?.refId    || req.query.ownerId;
+
+    const filter = userType === "OWNER" ? { ownerId } : {}; // Admin/others → no filter
+
+    const data = await searchProject(p_id, filter);
 
     if (p_id > 0 && !data.length) {
       return res.status(404).json({
@@ -77,7 +87,6 @@ export async function handleProject(req, res) {
     }
     return res.json({ success: true, count: data.length, data });
   }
-
   // ── PUT  ─────────────────────────────────────
   if (req.method === "PUT") {
     try {
