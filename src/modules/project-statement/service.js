@@ -400,6 +400,39 @@ function extractInvoiceNo(desc) {
   return match ? match[1] : null;
 }
 
+
+// ── NEW: split description around "Inv ###" so contractor is matched from the
+// text BEFORE it and project is matched from the text AFTER it (client's rule).
+// Falls back to whole-string matching (old behavior) when no "Inv" anchor found
+// or when the windowed match returns nothing. Does not touch existing matchers.
+const INV_ANCHOR_RE = /\b(?:Inv|Invoice)\b[\s.]*?(?:No\.?\s*)?[-:#]?\s*\d+\b/i;
+const PROJECT_WINDOW_CHARS = 80;
+
+function matchContractorSmart(desc, contractors) {
+  if (!desc) return null;
+  const m = desc.match(INV_ANCHOR_RE);
+  if (m) {
+    const beforeText = desc.slice(0, m.index);
+    const smartMatch = matchContractor(beforeText, contractors);
+    if (smartMatch) return smartMatch;
+  }
+  // fallback: old whole-string behavior
+  return matchContractor(desc, contractors);
+}
+
+function matchProjectSmart(desc, projects) {
+  if (!desc) return null;
+  const m = desc.match(INV_ANCHOR_RE);
+  if (m) {
+    const afterStart = m.index + m[0].length;
+    const afterText = desc.slice(afterStart, afterStart + PROJECT_WINDOW_CHARS);
+    const smartMatch = matchProject(afterText, projects);
+    if (smartMatch) return smartMatch;
+  }
+  // fallback: old whole-string behavior
+  return matchProject(desc, projects);
+}
+
 function parseAmount(str) {
   return parseFloat(String(str || "0").replace(/,/g, "")) || 0;
 }
@@ -484,8 +517,10 @@ export async function processCsvToStaging(csvText, userId) {
     if (existingKeys.has(key)) continue;
     existingKeys.add(key);
 
-    const matchedProject = matchProject(desc, projects);
-    const matchedContractor = matchContractor(desc, contractors);
+    // const matchedProject = matchProject(desc, projects);
+    // const matchedContractor = matchContractor(desc, contractors);
+    const matchedProject = matchProjectSmart(desc, projects);
+    const matchedContractor = matchContractorSmart(desc, contractors);
     const category = matchedProject ? "address" : categorize(desc);
     const invoiceNo = extractInvoiceNo(desc);
 
@@ -932,6 +967,59 @@ export async function updateStagingRow(stagingId, updates) {
     { autoCommit: true },
   );
   return { updated: true };
+}
+
+// ── Rematch a single PENDING staging row using current matching logic ──
+// (does not touch APPROVED rows or PM_STATEMENT_MAIN, staging only)
+export async function rematchStagingRow(stagingId) {
+  const result = await poolExecute(
+    `SELECT STAGING_ID, DESCRIPTION, STATUS FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID = :stagingId`,
+    { stagingId },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+  const row = result.rows?.[0];
+  if (!row) throw new Error("Staging row not found.");
+  if (row.STATUS === "APPROVED")
+    throw new Error("Approved rows cannot be rematched.");
+
+  const desc = row.DESCRIPTION || "";
+
+  const projects = await loadProjectAddresses();
+  const contractors = await loadContractors();
+
+  const matchedProject = matchProjectSmart(desc, projects);
+  const matchedContractor = matchContractorSmart(desc, contractors);
+  const category = matchedProject ? "address" : categorize(desc);
+  const invoiceNo = extractInvoiceNo(desc);
+
+  await poolExecute(
+    `UPDATE PM.PM_STATEMENT_STAGING
+     SET P_ID = :pId, PROJECT_NAME = :projectName, MATCHED_ADDRESS = :matchedAddress,
+         CONTRACTOR_ID = :contractorId, CONTRACTOR_NAME = :contractorName,
+         CATEGORY = :category, INVOICE_NO = :invoiceNo
+     WHERE STAGING_ID = :stagingId`,
+    {
+      stagingId,
+      pId: matchedProject ? matchedProject.pId : null,
+      projectName: matchedProject ? matchedProject.pName : null,
+      matchedAddress: matchedProject ? matchedProject.fullAddress : null,
+      contractorId: matchedContractor ? matchedContractor.contractorId : null,
+      contractorName: matchedContractor ? matchedContractor.contractorName : null,
+      category,
+      invoiceNo: invoiceNo || null,
+    },
+    { autoCommit: true },
+  );
+
+  return {
+    rematched: true,
+    pId: matchedProject ? matchedProject.pId : null,
+    projectName: matchedProject ? matchedProject.pName : null,
+    contractorId: matchedContractor ? matchedContractor.contractorId : null,
+    contractorName: matchedContractor ? matchedContractor.contractorName : null,
+    category,
+    invoiceNo: invoiceNo || null,
+  };
 }
 
 export async function uploadInvoiceFile(stagingId, file) {
