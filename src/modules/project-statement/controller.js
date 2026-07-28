@@ -27,7 +27,8 @@ import {
   deleteInvoice,
   getInvoiceFileById,
   getTransactionById,
-  deleteStagingRow
+  deleteStagingRow,
+  rematchStagingRow  
 } from "./service.js";
 
 export async function statementHandler(req, res) {
@@ -187,6 +188,18 @@ export async function statementHandler(req, res) {
         paymentBy,          // ← add here
       });
       return res.status(200).json({ success: true, ...result });
+    }
+
+    case "rematchRow": {
+      const { stagingId } = req.params;
+      if (!stagingId)
+        return res.status(400).json({ success: false, message: "stagingId is required." });
+      try {
+        const result = await rematchStagingRow(stagingId);
+        return res.status(200).json({ success: true, message: "Row rematched.", ...result });
+      } catch (err) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
     }
 
     case "updateMainRow": {

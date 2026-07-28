@@ -51,6 +51,10 @@ router.put('/staging/row',
   asyncHandler((req, res) => { req.params.action = 'updateRow'; return statementHandler(req, res); })
 );
 
+router.post('/staging/:stagingId/rematch',
+  asyncHandler((req, res) => { req.params.action = 'rematchRow'; return statementHandler(req, res); })
+);
+
 router.post('/staging/:stagingId/invoice',
   upload.single('invoiceFile'),
   asyncHandler((req, res) => { req.params.action = 'uploadInvoice'; return statementHandler(req, res); })
