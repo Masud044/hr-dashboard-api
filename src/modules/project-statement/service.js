@@ -139,8 +139,8 @@ const STOP_WORDS = new Set([
   "the",
   "and",
   "group",
-  "construction",
-  "constructions",
+  // "construction",
+  // "constructions",
   "services",
   "service",
   "company",
@@ -150,15 +150,33 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// function extractKeywords(...strings) {
+//   const combined = strings.filter(Boolean).join(" ");
+//   const norm = normalize(combined);
+//   const words = norm.split(/[^a-z0-9]+/).filter(Boolean);
+//   return [
+//     ...new Set(
+//       words.filter(
+//         (w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w),
+//       ),
+//     ),
+//   ];
+// }
+
 function extractKeywords(...strings) {
   const combined = strings.filter(Boolean).join(" ");
   const norm = normalize(combined);
   const words = norm.split(/[^a-z0-9]+/).filter(Boolean);
   return [
     ...new Set(
-      words.filter(
-        (w) => w.length >= 3 && !STOP_WORDS.has(w) && !/^\d+$/.test(w),
-      ),
+      words.filter((w) => {
+        const isNumeric = /^\d+$/.test(w);
+        // keep numeric tokens (street numbers) regardless of length —
+        // these are exactly what distinguish "291 Bungarribee Rd" from
+        // "33 Henry Kater Ave" when both share a suburb name
+        if (isNumeric) return true;
+        return w.length >= 3 && !STOP_WORDS.has(w);
+      }),
     ),
   ];
 }
