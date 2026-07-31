@@ -25,7 +25,9 @@ function initThickMode() {
  * Logs "Database connected successfully" or throws with a clear message.
  */
 export async function initDb() {
-  initThickMode();
+  if (process.env.ORACLE_THICK_MODE === 'true') {
+    initThickMode();
+  }
 
   oracledb.fetchAsString = [oracledb.CLOB];
   oracledb.fetchAsBuffer = [oracledb.BLOB];
