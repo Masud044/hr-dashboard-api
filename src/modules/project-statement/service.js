@@ -663,10 +663,11 @@ export async function getStagingFiltered(
   //            ORDER BY TXN_DATE DESC, STAGING_ID DESC`;
   const { where, binds } = buildStagingWhere(filters);
 
-  const orderClause =
-    sortBy === "recent"
-      ? "CREATION_DATE DESC, STAGING_ID DESC"
-      : "TXN_DATE DESC, STAGING_ID DESC";
+  // const orderClause =
+  //   sortBy === "recent"
+  //     ? "CREATION_DATE DESC, STAGING_ID DESC"
+  //     : "TXN_DATE DESC, STAGING_ID DESC";
+  const orderClause = "TXN_DATE DESC, STAGING_ID DESC";
 
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
