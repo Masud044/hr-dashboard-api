@@ -32,17 +32,10 @@ export async function handleAttendance(req, res) {
 if (req.method === "POST") {
     const body = req.body;
 
-    if (!body?.WORKER_ID || !body?.PROJECT_ID || !body?.CALC_BASIS) {
+    if (!body?.WORKER_ID || !body?.PROJECT_ID || body?.HOURS_WORKED == null) {
       return res.status(400).json({
         success: false,
-        message: "WORKER_ID, PROJECT_ID, and CALC_BASIS are required.",
-      });
-    }
-
-    if (body.CALC_BASIS === "HOUR" && !body?.ENTRY_MODE) {
-      return res.status(400).json({
-        success: false,
-        message: "ENTRY_MODE is required when CALC_BASIS is 'HOUR'.",
+        message: "WORKER_ID, PROJECT_ID, and HOURS_WORKED are required.",
       });
     }
 

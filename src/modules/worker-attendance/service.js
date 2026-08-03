@@ -6,18 +6,18 @@ import { parse, differenceInMinutes, addHours } from "date-fns";
 // ─────────────────────────────────────────────
 // PRIVATE HELPERS
 // ─────────────────────────────────────────────
-function calcHours(startTime, endTime) {
-  const refDate = new Date(2000, 0, 1);
-  let start = parse(startTime, "HH:mm", refDate);
-  let end = parse(endTime, "HH:mm", refDate);
+// function calcHours(startTime, endTime) {
+//   const refDate = new Date(2000, 0, 1);
+//   let start = parse(startTime, "HH:mm", refDate);
+//   let end = parse(endTime, "HH:mm", refDate);
 
-  if (differenceInMinutes(end, start) < 0) {
-    end = addHours(end, 24);
-  }
+//   if (differenceInMinutes(end, start) < 0) {
+//     end = addHours(end, 24);
+//   }
 
-  const diffMinutes = differenceInMinutes(end, start);
-  return Math.round((diffMinutes / 60) * 100) / 100;
-}
+//   const diffMinutes = differenceInMinutes(end, start);
+//   return Math.round((diffMinutes / 60) * 100) / 100;
+// }
 
 // function validateAndPrepare(data) {
 //   if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
@@ -57,72 +57,112 @@ function calcHours(startTime, endTime) {
 // }
 
 
-function validateAndPrepare(data) {
-  if (!["HOUR", "DAY"].includes(data.CALC_BASIS)) {
-    throw new Error("CALC_BASIS must be 'HOUR' or 'DAY'.");
-  }
+// function validateAndPrepare(data) {
+//   if (!["HOUR", "DAY"].includes(data.CALC_BASIS)) {
+//     throw new Error("CALC_BASIS must be 'HOUR' or 'DAY'.");
+//   }
 
-  let hoursWorked = null;
-  let daysWorked = null;
-  let startTime = null;
-  let endTime = null;
+//   let hoursWorked = null;
+//   let daysWorked = null;
+//   let startTime = null;
+//   let endTime = null;
 
-  if (data.CALC_BASIS === "DAY") {
-    if (data.DAYS_WORKED == null) {
-      throw new Error("DAYS_WORKED is required when CALC_BASIS is 'DAY'.");
-    }
-    daysWorked = Number(data.DAYS_WORKED);
-  } else {
-    if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
-      throw new Error("ENTRY_MODE must be 'TIME' or 'HOURS'.");
-    }
-    if (data.ENTRY_MODE === "TIME") {
-      if (!data.START_TIME || !data.END_TIME) {
-        throw new Error("START_TIME and END_TIME are required when ENTRY_MODE is 'TIME'.");
-      }
-      startTime = data.START_TIME;
-      endTime = data.END_TIME;
-      hoursWorked = calcHours(startTime, endTime);
-    } else {
-      if (data.HOURS_WORKED == null) {
-        throw new Error("HOURS_WORKED is required when ENTRY_MODE is 'HOURS'.");
-      }
-      hoursWorked = Number(data.HOURS_WORKED);
-    }
-  }
+//   if (data.CALC_BASIS === "DAY") {
+//     if (data.DAYS_WORKED == null) {
+//       throw new Error("DAYS_WORKED is required when CALC_BASIS is 'DAY'.");
+//     }
+//     daysWorked = Number(data.DAYS_WORKED);
+//   } else {
+//     if (!["TIME", "HOURS"].includes(data.ENTRY_MODE)) {
+//       throw new Error("ENTRY_MODE must be 'TIME' or 'HOURS'.");
+//     }
+//     if (data.ENTRY_MODE === "TIME") {
+//       if (!data.START_TIME || !data.END_TIME) {
+//         throw new Error("START_TIME and END_TIME are required when ENTRY_MODE is 'TIME'.");
+//       }
+//       startTime = data.START_TIME;
+//       endTime = data.END_TIME;
+//       hoursWorked = calcHours(startTime, endTime);
+//     } else {
+//       if (data.HOURS_WORKED == null) {
+//         throw new Error("HOURS_WORKED is required when ENTRY_MODE is 'HOURS'.");
+//       }
+//       hoursWorked = Number(data.HOURS_WORKED);
+//     }
+//   }
 
-  return { hoursWorked, daysWorked, startTime, endTime };
-}
+//   return { hoursWorked, daysWorked, startTime, endTime };
+// }
 // ─────────────────────────────────────────────
 // INSERT ATTENDANCE
 // ─────────────────────────────────────────────
+// export async function insertAttendance(data) {
+//   const connection = await getConnection();
+//   try {
+//     const { hoursWorked, daysWorked, startTime, endTime } = validateAndPrepare(data);
+    
+//     const attendanceDate = data.ATTENDANCE_DATE
+//   ? new Date(data.ATTENDANCE_DATE)
+//   : new Date(new Date().toDateString()); // strip time, store as midnight
+
+//     const result = await connection.execute(
+//       `INSERT INTO PM.PM_WORKER_ATTENDANCE
+//        (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE, ENTRY_MODE, START_TIME, END_TIME, 
+//         CALC_BASIS, HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY)
+//        VALUES
+//        (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE, :ENTRY_MODE, :START_TIME, :END_TIME, 
+//         :CALC_BASIS, :HOURS_WORKED, :DAYS_WORKED, :REMARKS, :CREATED_BY)
+//        RETURNING ATTENDANCE_ID INTO :NEW_ID`,
+//       {
+//         WORKER_ID:       Number(data.WORKER_ID),
+//         PROJECT_ID:      Number(data.PROJECT_ID),
+//         ATTENDANCE_DATE: attendanceDate,
+//         ENTRY_MODE:      data.ENTRY_MODE,
+//         START_TIME:      startTime,
+//         END_TIME:        endTime,
+//         CALC_BASIS:      data.CALC_BASIS,
+//         HOURS_WORKED:    hoursWorked,
+//         DAYS_WORKED:     daysWorked,
+//         REMARKS:         data.REMARKS ?? null,
+//         CREATED_BY:      data.CREATED_BY ?? null,
+//         NEW_ID:          { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
+//       },
+//       { autoCommit: false }
+//     );
+
+//     const ATTENDANCE_ID = result.outBinds.NEW_ID[0];
+//     await connection.commit();
+//     return ATTENDANCE_ID;
+//   } catch (err) {
+//     await connection.rollback();
+//     throw err;
+//   } finally {
+//     await connection.close();
+//   }
+// }
+
 export async function insertAttendance(data) {
   const connection = await getConnection();
   try {
-    const { hoursWorked, daysWorked, startTime, endTime } = validateAndPrepare(data);
-    
+    if (data.HOURS_WORKED == null) {
+      throw new Error("HOURS_WORKED is required.");
+    }
+
     const attendanceDate = data.ATTENDANCE_DATE
-  ? new Date(data.ATTENDANCE_DATE)
-  : new Date(new Date().toDateString()); // strip time, store as midnight
+      ? new Date(data.ATTENDANCE_DATE)
+      : new Date(new Date().toDateString());
 
     const result = await connection.execute(
       `INSERT INTO PM.PM_WORKER_ATTENDANCE
-       (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE, ENTRY_MODE, START_TIME, END_TIME, 
-        CALC_BASIS, HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY)
+       (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE, HOURS_WORKED, REMARKS, CREATED_BY)
        VALUES
-       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE, :ENTRY_MODE, :START_TIME, :END_TIME, 
-        :CALC_BASIS, :HOURS_WORKED, :DAYS_WORKED, :REMARKS, :CREATED_BY)
+       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE, :HOURS_WORKED, :REMARKS, :CREATED_BY)
        RETURNING ATTENDANCE_ID INTO :NEW_ID`,
       {
         WORKER_ID:       Number(data.WORKER_ID),
         PROJECT_ID:      Number(data.PROJECT_ID),
         ATTENDANCE_DATE: attendanceDate,
-        ENTRY_MODE:      data.ENTRY_MODE,
-        START_TIME:      startTime,
-        END_TIME:        endTime,
-        CALC_BASIS:      data.CALC_BASIS,
-        HOURS_WORKED:    hoursWorked,
-        DAYS_WORKED:     daysWorked,
+        HOURS_WORKED:    Number(data.HOURS_WORKED),
         REMARKS:         data.REMARKS ?? null,
         CREATED_BY:      data.CREATED_BY ?? null,
         NEW_ID:          { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
@@ -238,21 +278,21 @@ export async function updateAttendance(data) {
     const merged = { ...existing, ...data };
 
     // 3. Check if we need to recalculate time/hours
-    const timeCalcFields = ["ENTRY_MODE", "START_TIME", "END_TIME", "CALC_BASIS", "HOURS_WORKED", "DAYS_WORKED"];
-    const needsRecalc = timeCalcFields.some(f => Object.prototype.hasOwnProperty.call(data, f));
+    // const timeCalcFields = ["ENTRY_MODE", "START_TIME", "END_TIME", "CALC_BASIS", "HOURS_WORKED", "DAYS_WORKED"];
+    // const needsRecalc = timeCalcFields.some(f => Object.prototype.hasOwnProperty.call(data, f));
 
-    let hoursWorked = existing.HOURS_WORKED;
-    let daysWorked = existing.DAYS_WORKED;
-    let startTime = existing.START_TIME;
-    let endTime = existing.END_TIME;
+    // let hoursWorked = existing.HOURS_WORKED;
+    // let daysWorked = existing.DAYS_WORKED;
+    // let startTime = existing.START_TIME;
+    // let endTime = existing.END_TIME;
 
-    if (needsRecalc) {
-      const validated = validateAndPrepare(merged);
-      hoursWorked = validated.hoursWorked;
-      daysWorked = validated.daysWorked;
-      startTime = validated.startTime;
-      endTime = validated.endTime;
-    }
+    // if (needsRecalc) {
+    //   const validated = validateAndPrepare(merged);
+    //   hoursWorked = validated.hoursWorked;
+    //   daysWorked = validated.daysWorked;
+    //   startTime = validated.startTime;
+    //   endTime = validated.endTime;
+    // }
 
     // 4. Build SET clause dynamically
     const set = [];
@@ -266,28 +306,36 @@ export async function updateAttendance(data) {
         binds[key] = field === "REMARKS" ? (data[field] ?? null) : Number(data[field]);
       }
     }
+    set.push("UPDATED_BY = :updated_by");
+set.push("UPDATED_DATE = :updated_date");
+binds.updated_by = data.UPDATED_BY ?? null;
+binds.updated_date = new Date();
 
     if (Object.prototype.hasOwnProperty.call(data, "ATTENDANCE_DATE")) {
       set.push("ATTENDANCE_DATE = :attendance_date");
       binds.attendance_date = data.ATTENDANCE_DATE ? new Date(data.ATTENDANCE_DATE) : null;
     }
 
-    if (needsRecalc) {
-      set.push("ENTRY_MODE   = :entry_mode");
-      set.push("START_TIME   = :start_time");
-      set.push("END_TIME     = :end_time");
-      set.push("CALC_BASIS   = :calc_basis");
-      set.push("HOURS_WORKED = :hours_worked");
-      set.push("DAYS_WORKED  = :days_worked");
+    // if (needsRecalc) {
+    //   set.push("ENTRY_MODE   = :entry_mode");
+    //   set.push("START_TIME   = :start_time");
+    //   set.push("END_TIME     = :end_time");
+    //   set.push("CALC_BASIS   = :calc_basis");
+    //   set.push("HOURS_WORKED = :hours_worked");
+    //   set.push("DAYS_WORKED  = :days_worked");
 
-      binds.entry_mode   = merged.ENTRY_MODE;
-      binds.start_time   = startTime;
-      binds.end_time     = endTime;
-      binds.calc_basis   = merged.CALC_BASIS;
-      binds.hours_worked = hoursWorked;
-      binds.days_worked  = daysWorked;
-    }
+    //   binds.entry_mode   = merged.ENTRY_MODE;
+    //   binds.start_time   = startTime;
+    //   binds.end_time     = endTime;
+    //   binds.calc_basis   = merged.CALC_BASIS;
+    //   binds.hours_worked = hoursWorked;
+    //   binds.days_worked  = daysWorked;
+    // }
 
+    if (Object.prototype.hasOwnProperty.call(data, "HOURS_WORKED")) {
+  set.push("HOURS_WORKED = :hours_worked");
+  binds.hours_worked = Number(data.HOURS_WORKED);
+}
     if (set.length === 0) return 0;
 
     const sql = `UPDATE PM.PM_WORKER_ATTENDANCE SET ${set.join(", ")} WHERE ATTENDANCE_ID = :attendance_id_bv`;
@@ -380,7 +428,9 @@ export async function getAttendanceById(attendance_id) {
         TO_CHAR(ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
         ENTRY_MODE, START_TIME, END_TIME, CALC_BASIS,
         HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY,
-        TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
+        TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE,
+UPDATED_BY,
+TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
       FROM PM.PM_WORKER_ATTENDANCE
       WHERE ATTENDANCE_ID = :id`;
 
