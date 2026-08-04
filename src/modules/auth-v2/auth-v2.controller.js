@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { generateTokenV2 } from "../../utils/auth-token-v2.js";
 
 // ─────────────────────────────────────────────
+// NOT USED
 // REGISTER — leaving as-is for now (uses old EMPLOYEE_ID flow).
 // You said user-management module handles create now — skip unless you want this fixed too.
 // ─────────────────────────────────────────────
