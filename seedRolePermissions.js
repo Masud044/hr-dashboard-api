@@ -1,6 +1,7 @@
 // seedRolePermissions.js
-// Maps ALL permissions to Admin role
-// Run AFTER: seedRole.js → seedRBAC.js → this file
+// Maps ALL permissions to Admin role only (PM schema).
+// DataEntry / Worker / Owner permission mapping will be done manually later.
+// Run AFTER: seedRole.js → seedRBAC.js → seedDashboardModules.js → this file
 
 import "dotenv/config";
 
@@ -13,7 +14,7 @@ export const seedRolePermissions = async () => {
 
     // ── 1. Fetch Admin role ID ─────────────────────────────────────────────
     const roleRes = await conn.execute(
-      `SELECT ID FROM HCM.ROLES WHERE ROLE_NAME = :1`, ["Admin"]
+      `SELECT ID FROM PM.ROLES WHERE ROLE_NAME = :1`, ["Admin"]
     );
     if (roleRes.rows.length === 0)
       throw new Error("Role 'Admin' not found. Run seedRole.js first.");
@@ -23,7 +24,7 @@ export const seedRolePermissions = async () => {
 
     // ── 2. Fetch all permissions ───────────────────────────────────────────
     const allPermsRes = await conn.execute(
-      `SELECT ID, PERMISSION_CODE FROM HCM.PERMISSIONS`
+      `SELECT ID, PERMISSION_CODE FROM PM.PERMISSIONS`
     );
     const permMap = {};
     for (const [id, code] of allPermsRes.rows) {
@@ -39,13 +40,13 @@ export const seedRolePermissions = async () => {
         return;
       }
       const check = await conn.execute(
-        `SELECT 1 FROM HCM.ROLE_PERMISSIONS
+        `SELECT 1 FROM PM.ROLE_PERMISSIONS
           WHERE ROLE_ID = :1 AND PERMISSION_ID = :2`,
         [roleId, permId]
       );
       if (check.rows.length === 0) {
         await conn.execute(
-          `INSERT INTO HCM.ROLE_PERMISSIONS (ROLE_ID, PERMISSION_ID, GRANTED_BY)
+          `INSERT INTO PM.ROLE_PERMISSIONS (ROLE_ID, PERMISSION_ID, GRANTED_BY)
            VALUES (:1, :2, NULL)`,
           [roleId, permId]
         );
@@ -64,8 +65,8 @@ export const seedRolePermissions = async () => {
     // ── Summary ───────────────────────────────────────────────────────────
     const countRes = await conn.execute(
       `SELECT r.ROLE_NAME, COUNT(rp.PERMISSION_ID) AS CNT
-       FROM HCM.ROLES r
-       LEFT JOIN HCM.ROLE_PERMISSIONS rp ON r.ID = rp.ROLE_ID
+       FROM PM.ROLES r
+       LEFT JOIN PM.ROLE_PERMISSIONS rp ON r.ID = rp.ROLE_ID
        WHERE r.ROLE_NAME = 'Admin'
        GROUP BY r.ROLE_NAME`
     );
@@ -73,7 +74,7 @@ export const seedRolePermissions = async () => {
     for (const [roleName, cnt] of countRes.rows) {
       console.log(`  ${String(roleName).padEnd(12)}: ${cnt} permissions`);
     }
-    console.log("\n✅ Role–Permission Mapping Complete!");
+    console.log("\n✅ Role–Permission Mapping Complete (Admin only)!");
 
   } catch (err) {
     if (conn) await conn.rollback();

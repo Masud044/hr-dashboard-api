@@ -1,33 +1,12 @@
-// seedRBAC.js
-// Modules & Permissions for Revinns (schema: PM)
-// Run AFTER seedRole.js (ROLES must already exist: Admin, Owner, DataEntry, Worker, ...)
+// seedDashboardModules.js
+// One-off addition to seedRBAC.js — adds the two "Main Entry" modules that
+// were missed in the first pass (Overview / Schedule Dashboard from nav-items.js).
+// Idempotent — safe to re-run.
 import "dotenv/config";
 
 import { initDb, getConnection } from "./src/config/db.js";
 import oracledb from "oracledb";
 
-// ── Modules (must match src/config/module-options.js on the frontend) ──────
-const modulesData = [
-  { name: "Project",             desc: "Project records",                    seq: 1 },
-  { name: "Project Statement",   desc: "Project financial statement upload", seq: 2 },
-  { name: "Contractor",          desc: "Contractor management",              seq: 3 },
-  { name: "Calendar",            desc: "Project calendar",                   seq: 4 },
-  { name: "Project Type",        desc: "Project type definitions",           seq: 5 },
-  { name: "Contractor Type",     desc: "Contractor type definitions",        seq: 6 },
-  { name: "Owner Info",          desc: "Owner information records",          seq: 7 },
-  { name: "Worker",              desc: "Worker records",                     seq: 8 },
-  { name: "Attendance",          desc: "Worker attendance entries",          seq: 9 },
-  { name: "Attendance Report",   desc: "Worker attendance reporting",        seq: 10 },
-  { name: "Invoice",             desc: "Invoice management",                 seq: 11 },
-  { name: "User Management",     desc: "User accounts management",          seq: 12 },
-  { name: "Module",              desc: "RBAC module definitions",            seq: 13 },
-  { name: "Role",                desc: "RBAC role definitions",              seq: 14 },
-  { name: "Permission",          desc: "RBAC permission definitions",        seq: 15 },
-];
-
-// ── Actions per module (must match src/config/permission-actions.js) ───────
-// Standard set: VIEW, CREATE, EDIT, DELETE, DOWNLOAD.
-// Trim per-module below if a module truly doesn't need one (e.g. Calendar has no Download).
 const DEFAULT_ACTIONS = [
   { code: "VIEW",     name: "View" },
   { code: "CREATE",   name: "Create" },
@@ -36,18 +15,35 @@ const DEFAULT_ACTIONS = [
   { code: "DOWNLOAD", name: "Download" },
 ];
 
-// "Project Statement" -> "PROJECT_STATEMENT"  (must match toModulePrefix() on the frontend)
+const modulesData = [
+  {
+    name: "Dashboard",
+    desc: "Main dashboard overview",
+    seq: 16,
+    actions: [
+      { code: "VIEW_ALL",  name: "View All" },
+      { code: "VIEW_SELF", name: "View Self" },
+    ],
+  },
+  {
+    name: "Schedule Dashboard",
+    desc: "Schedule dashboard overview",
+    seq: 17,
+    // no override → falls through to DEFAULT_ACTIONS
+  },
+];
+
+// "Schedule Dashboard" -> "SCHEDULE_DASHBOARD"  (must match toModulePrefix() on the frontend)
 const toModulePrefix = (moduleName) =>
   moduleName.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 
-export const seedRbacData = async () => {
+export const seedDashboardModules = async () => {
   let conn;
   try {
     conn = await getConnection();
 
-    // ── MODULES ──
     const moduleMap = {};
-    console.log("📦 Inserting Modules...");
+    console.log("📦 Inserting Dashboard Modules...");
     for (const m of modulesData) {
       const existing = await conn.execute(
         `SELECT ID FROM PM.MODULES WHERE MODULE_NAME = :1`, [m.name]
@@ -72,14 +68,13 @@ export const seedRbacData = async () => {
       console.log(`  ✓ Module '${m.name}' → ID ${moduleMap[m.name]}`);
     }
 
-    // ── PERMISSIONS (VIEW/CREATE/EDIT/DELETE/DOWNLOAD per module) ──
     console.log("\n🔑 Inserting Permissions...");
     let total = 0;
     for (const m of modulesData) {
       const modId = moduleMap[m.name];
       const prefix = toModulePrefix(m.name);
 
-      for (const action of DEFAULT_ACTIONS) {
+      for (const action of (m.actions ?? DEFAULT_ACTIONS)) {
         const code = `${prefix}_${action.code}`;
         const name = `${m.name} ${action.name}`;
 
@@ -102,8 +97,7 @@ export const seedRbacData = async () => {
     }
 
     await conn.commit();
-    console.log(`\n✅ RBAC Seed Complete: ${modulesData.length} Modules, ${total} Permissions inserted.`);
-    console.log("  Next step: assign permissions to roles (ROLE_PERMISSIONS) — not done by this script.");
+    console.log(`\n✅ Dashboard Modules Seed Complete: ${modulesData.length} Modules, ${total} Permissions inserted.`);
 
   } catch (err) {
     if (conn) await conn.rollback();
@@ -117,8 +111,8 @@ export const seedRbacData = async () => {
 const run = async () => {
   try {
     await initDb();
-    console.log("🚀 Starting RBAC seed...");
-    await seedRbacData();
+    console.log("🚀 Starting Dashboard Modules seed...");
+    await seedDashboardModules();
     process.exit(0);
   } catch (err) {
     console.error("FAILED:", err.message);
