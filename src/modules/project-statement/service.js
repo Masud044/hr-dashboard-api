@@ -636,7 +636,7 @@ export async function getStagingByBatch(batchId) {
             s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
             s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
             s.INVOICE_FILE_NAME, s.INVOICE_FILE_TYPE, s.INVOICE_FILE_SIZE,
-            s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY, s.STATUS
+            s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY,s.EXCLUDE_MARGIN, s.STATUS
      FROM PM.PM_STATEMENT_STAGING s
      WHERE s.UPLOAD_BATCH_ID = :batchId
      ORDER BY s.TXN_DATE DESC`,
@@ -672,7 +672,7 @@ export async function getStagingFiltered(
   let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
                     AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
                     CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-                    INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, PAYMENT_BY, STATUS
+                    INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, PAYMENT_BY,EXCLUDE_MARGIN, STATUS
              FROM PM.PM_STATEMENT_STAGING ${where}
              ORDER BY ${orderClause}`;
 
@@ -905,6 +905,7 @@ export async function updateMainRow(txnId, updates) {
     binds.category = updates.category || null;
   }
   if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  
+  if (updates.excludeMargin !== undefined) { fields.push('EXCLUDE_MARGIN = :excludeMargin'); binds.excludeMargin = updates.excludeMargin || 'N'; }  // ← ADD
 
   if (fields.length === 0) return { updated: false };
 
@@ -975,7 +976,8 @@ export async function updateStagingRow(stagingId, updates) {
     fields.push("CATEGORY = :category");
     binds.category = updates.category || null;
   }
-   if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  // ← add here
+   if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  
+   if (updates.excludeMargin !== undefined) { fields.push('EXCLUDE_MARGIN = :excludeMargin'); binds.excludeMargin = updates.excludeMargin || 'N'; }  // ← ADD
 
 
   if (fields.length === 0) return { updated: false };
@@ -1267,7 +1269,7 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
       `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
               CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
               INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-              SOURCE_TYPE, REMARKS, PAYMENT_BY, USER_ID, ENTRY_TYPE   -- ← add PAYMENT_BY here
+              SOURCE_TYPE, REMARKS, PAYMENT_BY,EXCLUDE_MARGIN, USER_ID, ENTRY_TYPE   -- ← add PAYMENT_BY here
        FROM PM.PM_STATEMENT_STAGING WHERE STAGING_ID IN (${placeholders})`,
       binds,
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
@@ -1286,77 +1288,95 @@ export async function approveAndMoveToMain(stagingIds, approvedBy) {
         credit = dc.credit;
       }
 
-      // const insertResult = await conn.execute(
-      //   `INSERT INTO PM.PM_STATEMENT_MAIN
-      //     (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
-      //      CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-      //      INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-      //      SOURCE_TYPE, REMARKS, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
-      //    VALUES
-      //     (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
-      //      :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
-      //      :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
-      //      :sourceType, :remarks, :debit, :credit, :approvedBy, SYSDATE, :userId)
-      //    RETURNING TXN_ID INTO :newTxnId`,
-      //   {
-      //     stagingId: row.STAGING_ID,
-      //     uploadBatchId: row.UPLOAD_BATCH_ID, pId: row.P_ID, projectName: row.PROJECT_NAME,
-      //     txnDate: row.TXN_DATE, amount: row.AMOUNT, description: row.DESCRIPTION, balance: row.BALANCE,
-      //     category: row.CATEGORY, matchedAddress: row.MATCHED_ADDRESS,
-      //     contractorId: row.CONTRACTOR_ID, contractorName: row.CONTRACTOR_NAME, invoiceNo: row.INVOICE_NO,
-      //     invoiceFile: row.INVOICE_FILE ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB } : null,
-      //     invoiceFileName: row.INVOICE_FILE_NAME, invoiceFileType: row.INVOICE_FILE_TYPE, invoiceFileSize: row.INVOICE_FILE_SIZE,
-      //     sourceType: row.SOURCE_TYPE, remarks: row.REMARKS,
-      //     debit, credit, approvedBy, userId: row.USER_ID,
-      //     newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
-      //   }
-      // );
 
-      const insertResult = await conn.execute(
-        `INSERT INTO PM.PM_STATEMENT_MAIN
-      (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
-       CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-       INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
-       SOURCE_TYPE, REMARKS, PAYMENT_BY, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
-     VALUES
-      (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
-       :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
-       :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
-       :sourceType, :remarks, :paymentBy, :debit, :credit, :approvedBy, SYSDATE, :userId)
-     RETURNING TXN_ID INTO :newTxnId`,
-        {
-          stagingId: row.STAGING_ID,
-          uploadBatchId: row.UPLOAD_BATCH_ID,
-          pId: row.P_ID,
-          projectName: row.PROJECT_NAME,
-          txnDate: row.TXN_DATE,
-          amount: row.AMOUNT,
-          description: row.DESCRIPTION,
-          balance: row.BALANCE,
-          category: row.CATEGORY,
-          matchedAddress: row.MATCHED_ADDRESS,
-          contractorId: row.CONTRACTOR_ID,
-          contractorName: row.CONTRACTOR_NAME,
-          invoiceNo: row.INVOICE_NO,
-          invoiceFile: row.INVOICE_FILE
-            ? {
-                val: await readLobToBuffer(row.INVOICE_FILE),
-                type: oracledb.BLOB,
-              }
-            : null,
-          invoiceFileName: row.INVOICE_FILE_NAME,
-          invoiceFileType: row.INVOICE_FILE_TYPE,
-          invoiceFileSize: row.INVOICE_FILE_SIZE,
-          sourceType: row.SOURCE_TYPE,
-          remarks: row.REMARKS,
-          paymentBy: row.PAYMENT_BY,
-          debit,
-          credit,
-          approvedBy,
-          userId: row.USER_ID,
-          newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
-        },
-      );
+    //   const insertResult = await conn.execute(
+    //     `INSERT INTO PM.PM_STATEMENT_MAIN
+    //   (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+    //    CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+    //    INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+    //    SOURCE_TYPE, REMARKS, PAYMENT_BY, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+    //  VALUES
+    //   (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+    //    :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
+    //    :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
+    //    :sourceType, :remarks, :paymentBy, :debit, :credit, :approvedBy, SYSDATE, :userId)
+    //  RETURNING TXN_ID INTO :newTxnId`,
+    //     {
+    //       stagingId: row.STAGING_ID,
+    //       uploadBatchId: row.UPLOAD_BATCH_ID,
+    //       pId: row.P_ID,
+    //       projectName: row.PROJECT_NAME,
+    //       txnDate: row.TXN_DATE,
+    //       amount: row.AMOUNT,
+    //       description: row.DESCRIPTION,
+    //       balance: row.BALANCE,
+    //       category: row.CATEGORY,
+    //       matchedAddress: row.MATCHED_ADDRESS,
+    //       contractorId: row.CONTRACTOR_ID,
+    //       contractorName: row.CONTRACTOR_NAME,
+    //       invoiceNo: row.INVOICE_NO,
+    //       invoiceFile: row.INVOICE_FILE
+    //         ? {
+    //             val: await readLobToBuffer(row.INVOICE_FILE),
+    //             type: oracledb.BLOB,
+    //           }
+    //         : null,
+    //       invoiceFileName: row.INVOICE_FILE_NAME,
+    //       invoiceFileType: row.INVOICE_FILE_TYPE,
+    //       invoiceFileSize: row.INVOICE_FILE_SIZE,
+    //       sourceType: row.SOURCE_TYPE,
+    //       remarks: row.REMARKS,
+    //       paymentBy: row.PAYMENT_BY,
+    //       debit,
+    //       credit,
+    //       approvedBy,
+    //       userId: row.USER_ID,
+    //       newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
+    //     },
+    //   );
+    const insertResult = await conn.execute(
+  `INSERT INTO PM.PM_STATEMENT_MAIN
+    (STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
+     CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+     INVOICE_FILE, INVOICE_FILE_NAME, INVOICE_FILE_TYPE, INVOICE_FILE_SIZE,
+     SOURCE_TYPE, REMARKS, PAYMENT_BY, EXCLUDE_MARGIN, DEBIT, CREDIT, APPROVED_BY, APPROVED_DATE, USER_ID)
+   VALUES
+    (:stagingId, :uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, :balance,
+     :category, :matchedAddress, :contractorId, :contractorName, :invoiceNo,
+     :invoiceFile, :invoiceFileName, :invoiceFileType, :invoiceFileSize,
+     :sourceType, :remarks, :paymentBy, :excludeMargin, :debit, :credit, :approvedBy, SYSDATE, :userId)
+   RETURNING TXN_ID INTO :newTxnId`,
+  {
+    stagingId: row.STAGING_ID,
+    uploadBatchId: row.UPLOAD_BATCH_ID,
+    pId: row.P_ID,
+    projectName: row.PROJECT_NAME,
+    txnDate: row.TXN_DATE,
+    amount: row.AMOUNT,
+    description: row.DESCRIPTION,
+    balance: row.BALANCE,
+    category: row.CATEGORY,
+    matchedAddress: row.MATCHED_ADDRESS,
+    contractorId: row.CONTRACTOR_ID,
+    contractorName: row.CONTRACTOR_NAME,
+    invoiceNo: row.INVOICE_NO,
+    invoiceFile: row.INVOICE_FILE
+      ? { val: await readLobToBuffer(row.INVOICE_FILE), type: oracledb.BLOB }
+      : null,
+    invoiceFileName: row.INVOICE_FILE_NAME,
+    invoiceFileType: row.INVOICE_FILE_TYPE,
+    invoiceFileSize: row.INVOICE_FILE_SIZE,
+    sourceType: row.SOURCE_TYPE,
+    remarks: row.REMARKS,
+    paymentBy: row.PAYMENT_BY,
+    excludeMargin: row.EXCLUDE_MARGIN || 'N',   // ← ADD
+    debit,
+    credit,
+    approvedBy,
+    userId: row.USER_ID,
+    newTxnId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
+  },
+);
 
       const newTxnId = insertResult.outBinds.newTxnId[0];
 
@@ -1443,6 +1463,7 @@ export async function insertNonBankingEntry(data, userId) {
     entryType,
     category,
     paymentBy, // NEW: 'CUSTOMER' | 'BUILDER'
+    excludeMargin, 
   } = data;
 
   if (!["DEBIT", "CREDIT"].includes(entryType)) {
@@ -1456,11 +1477,11 @@ export async function insertNonBankingEntry(data, userId) {
     `INSERT INTO PM.PM_STATEMENT_STAGING
       (UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE, AMOUNT, DESCRIPTION, BALANCE,
        CATEGORY, MATCHED_ADDRESS, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-       SOURCE_TYPE, REMARKS, ENTRY_TYPE, PAYMENT_BY, STATUS, USER_ID)
+       SOURCE_TYPE, REMARKS, ENTRY_TYPE, PAYMENT_BY,EXCLUDE_MARGIN, STATUS, USER_ID)
      VALUES
       (:uploadBatchId, :pId, :projectName, :txnDate, :amount, :description, NULL,
        :category, NULL, :contractorId, :contractorName, :invoiceNo,
-       'NON_BANKING', :remarks, :entryType, :paymentBy, 'PENDING', :userId)`,
+       'NON_BANKING', :remarks, :entryType, :paymentBy,:excludeMargin, 'PENDING', :userId)`,
     {
       uploadBatchId: batchId,
       pId: pId || null,
@@ -1475,6 +1496,7 @@ export async function insertNonBankingEntry(data, userId) {
       remarks: remarks || null,
       entryType,
       paymentBy: paymentBy || null,
+      excludeMargin: excludeMargin || 'N', 
       userId,
     },
     { autoCommit: true },
@@ -1518,7 +1540,7 @@ export async function getMainTransactions(filters = {}, pagination = {}) {
                     m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
                     m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
                     m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
-                    m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE 
+                    m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY,m.EXCLUDE_MARGIN, m.APPROVED_DATE 
              FROM PM.PM_STATEMENT_MAIN m ${where}
              ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
 
@@ -1711,7 +1733,7 @@ export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
             m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
-            m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.APPROVED_DATE,
+            m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY,m.EXCLUDE_MARGIN, m.APPROVED_DATE,
             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE, p.MARGIN_PERCENT
      FROM PM.PM_STATEMENT_MAIN m
      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID

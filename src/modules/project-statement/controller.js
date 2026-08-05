@@ -161,35 +161,36 @@ export async function statementHandler(req, res) {
       return res.status(200).json({ success: true, data: contractors });
     }
 
-    case "updateRow": {
-      const {
-        stagingId,
-        pId,
-        projectName,
-        contractorId,
-        contractorName,
-        invoiceNo,
-        remarks,
-        category,
-        paymentBy,          // ← add here
-      } = req.body;
-      if (!stagingId)
-        return res
-          .status(400)
-          .json({ success: false, message: "stagingId is required." });
-      const result = await updateStagingRow(stagingId, {
-        pId,
-        projectName,
-        contractorId,
-        contractorName,
-        invoiceNo,
-        remarks,
-        category,
-        paymentBy,          // ← add here
-      });
-      return res.status(200).json({ success: true, ...result });
-    }
-
+   case "updateRow": {
+  const {
+    stagingId,
+    pId,
+    projectName,
+    contractorId,
+    contractorName,
+    invoiceNo,
+    remarks,
+    category,
+    paymentBy,
+    excludeMargin,          // ← ADD
+  } = req.body;
+  if (!stagingId)
+    return res
+      .status(400)
+      .json({ success: false, message: "stagingId is required." });
+  const result = await updateStagingRow(stagingId, {
+    pId,
+    projectName,
+    contractorId,
+    contractorName,
+    invoiceNo,
+    remarks,
+    category,
+    paymentBy,
+    excludeMargin,          // ← ADD
+  });
+  return res.status(200).json({ success: true, ...result });
+}
     case "rematchRow": {
       const { stagingId } = req.params;
       if (!stagingId)
@@ -202,34 +203,36 @@ export async function statementHandler(req, res) {
       }
     }
 
-    case "updateMainRow": {
-      const {
-        txnId,
-        pId,
-        projectName,
-        contractorId,
-        contractorName,
-        invoiceNo,
-        remarks,
-        category,
-        paymentBy,          // ← add here
-      } = req.body;
-      if (!txnId)
-        return res
-          .status(400)
-          .json({ success: false, message: "txnId is required." });
-      const result = await updateMainRow(txnId, {
-        pId,
-        projectName,
-        contractorId,
-        contractorName,
-        invoiceNo,
-        remarks,
-        category,
-        paymentBy,          // ← add here
-      });
-      return res.status(200).json({ success: true, ...result });
-    }
+  case "updateMainRow": {
+  const {
+    txnId,
+    pId,
+    projectName,
+    contractorId,
+    contractorName,
+    invoiceNo,
+    remarks,
+    category,
+    paymentBy,
+    excludeMargin,          // ← ADD
+  } = req.body;
+  if (!txnId)
+    return res
+      .status(400)
+      .json({ success: false, message: "txnId is required." });
+  const result = await updateMainRow(txnId, {
+    pId,
+    projectName,
+    contractorId,
+    contractorName,
+    invoiceNo,
+    remarks,
+    category,
+    paymentBy,
+    excludeMargin,          // ← ADD
+  });
+  return res.status(200).json({ success: true, ...result });
+}
 
     case "uploadMainInvoice": {
       const { txnId } = req.params;
