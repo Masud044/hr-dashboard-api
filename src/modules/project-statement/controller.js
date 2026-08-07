@@ -32,6 +32,7 @@ import {
 } from "./service.js";
 
 export async function statementHandler(req, res) {
+  // console.log("req.user:", req.user.id);
   const action = req.params.action || req.query.action || inferAction(req);
 
   switch (action) {
@@ -41,7 +42,7 @@ export async function statementHandler(req, res) {
           .status(400)
           .json({ success: false, message: "CSV file is required." });
       const csvText = req.file.buffer.toString("utf8");
-      const userId = req.user?.userId || req.body.userId || null;
+      const userId = req.user?.id || req.body.userId || null;
       const result = await processCsvToStaging(csvText, userId);
       return res.status(200).json({
         success: true,
@@ -119,7 +120,7 @@ export async function statementHandler(req, res) {
 
     case "approve": {
       const { stagingIds } = req.body;
-      const approvedBy = req.user?.userId || req.body.approvedBy || null;
+      const approvedBy = req.user?.id || req.body.approvedBy || null;
       if (!Array.isArray(stagingIds) || stagingIds.length === 0)
         return res
           .status(400)
@@ -346,7 +347,7 @@ export async function statementHandler(req, res) {
     }
 
     case "insertNonBanking": {
-      const userId = req.user?.userId || req.body.userId || null;
+      const userId = req.user?.id || req.body.userId || null;
       const result = await insertNonBankingEntry(req.body, userId);
       return res.status(200).json({
         success: true,

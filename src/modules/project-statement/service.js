@@ -630,14 +630,32 @@ export async function getLatestPendingBatch() {
   return row ? row.UPLOAD_BATCH_ID : null;
 }
 
+// export async function getStagingByBatch(batchId) {
+//   const result = await poolExecute(
+//     `SELECT s.STAGING_ID, s.UPLOAD_BATCH_ID, s.P_ID, s.PROJECT_NAME, s.TXN_DATE,
+//             s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
+//             s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
+//             s.INVOICE_FILE_NAME, s.INVOICE_FILE_TYPE, s.INVOICE_FILE_SIZE,
+//             s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY,s.EXCLUDE_MARGIN, s.STATUS
+//      FROM PM.PM_STATEMENT_STAGING s
+//      WHERE s.UPLOAD_BATCH_ID = :batchId
+//      ORDER BY s.TXN_DATE DESC`,
+//     { batchId },
+//     { outFormat: oracledb.OUT_FORMAT_OBJECT },
+//   );
+//   return result.rows || [];
+// }
+
 export async function getStagingByBatch(batchId) {
   const result = await poolExecute(
     `SELECT s.STAGING_ID, s.UPLOAD_BATCH_ID, s.P_ID, s.PROJECT_NAME, s.TXN_DATE,
             s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
             s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
             s.INVOICE_FILE_NAME, s.INVOICE_FILE_TYPE, s.INVOICE_FILE_SIZE,
-            s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY,s.EXCLUDE_MARGIN, s.STATUS
+            s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY, s.EXCLUDE_MARGIN, s.STATUS,
+            s.USER_ID, cu.USERNAME AS CREATED_BY_NAME, s.CREATION_DATE
      FROM PM.PM_STATEMENT_STAGING s
+     LEFT JOIN PM.USERS cu ON cu.ID = s.USER_ID
      WHERE s.UPLOAD_BATCH_ID = :batchId
      ORDER BY s.TXN_DATE DESC`,
     { batchId },
@@ -669,12 +687,21 @@ export async function getStagingFiltered(
   //     : "TXN_DATE DESC, STAGING_ID DESC";
   const orderClause = "TXN_DATE DESC, STAGING_ID DESC";
 
-  let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
-                    AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
-                    CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
-                    INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, PAYMENT_BY,EXCLUDE_MARGIN, STATUS
-             FROM PM.PM_STATEMENT_STAGING ${where}
-             ORDER BY ${orderClause}`;
+  // let sql = `SELECT STAGING_ID, UPLOAD_BATCH_ID, P_ID, PROJECT_NAME, TXN_DATE,
+  //                   AMOUNT, DESCRIPTION, BALANCE, CATEGORY, MATCHED_ADDRESS,
+  //                   CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+  //                   INVOICE_FILE_NAME, SOURCE_TYPE, REMARKS, PAYMENT_BY,EXCLUDE_MARGIN, STATUS
+  //            FROM PM.PM_STATEMENT_STAGING ${where}
+  //            ORDER BY ${orderClause}`;
+  let sql = `SELECT s.STAGING_ID, s.UPLOAD_BATCH_ID, s.P_ID, s.PROJECT_NAME, s.TXN_DATE,
+                  s.AMOUNT, s.DESCRIPTION, s.BALANCE, s.CATEGORY, s.MATCHED_ADDRESS,
+                  s.CONTRACTOR_ID, s.CONTRACTOR_NAME, s.INVOICE_NO,
+                  s.INVOICE_FILE_NAME, s.SOURCE_TYPE, s.REMARKS, s.PAYMENT_BY, s.EXCLUDE_MARGIN, s.STATUS,
+                  s.USER_ID, cu.USERNAME AS CREATED_BY_NAME, s.CREATION_DATE
+           FROM PM.PM_STATEMENT_STAGING s
+           LEFT JOIN PM.USERS cu ON cu.ID = s.USER_ID
+           ${where}
+           ORDER BY ${orderClause}`;
 
   const { page, pageSize } = pagination;
   const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
@@ -690,7 +717,8 @@ export async function getStagingFiltered(
   const pagedSql = `${sql} OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY`;
   const pagedBinds = { ...binds, offset, pageSize: Number(pageSize) };
 
-  const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_STAGING ${where}`;
+  // const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_STAGING ${where}`;
+  const countSql = `SELECT COUNT(*) AS TOTAL FROM PM.PM_STATEMENT_STAGING s ${where}`;
 
   const [dataResult, countResult] = await Promise.all([
     poolExecute(pagedSql, pagedBinds, {
@@ -1536,13 +1564,25 @@ export async function insertNonBankingEntry(data, userId) {
 export async function getMainTransactions(filters = {}, pagination = {}) {
   const { where, binds } = buildMainWhere(filters);
 
+  // let sql = `SELECT m.TXN_ID, m.STAGING_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE, m.DESCRIPTION,
+  //                   m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
+  //                   m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
+  //                   m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
+  //                   m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY,m.EXCLUDE_MARGIN, m.APPROVED_DATE 
+  //            FROM PM.PM_STATEMENT_MAIN m ${where}
+  //            ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
   let sql = `SELECT m.TXN_ID, m.STAGING_ID, m.UPLOAD_BATCH_ID, m.P_ID, m.PROJECT_NAME, m.TXN_DATE, m.DESCRIPTION,
-                    m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
-                    m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
-                    m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
-                    m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY,m.EXCLUDE_MARGIN, m.APPROVED_DATE 
-             FROM PM.PM_STATEMENT_MAIN m ${where}
-             ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
+                  m.AMOUNT, m.DEBIT, m.CREDIT, m.BALANCE, m.CATEGORY, m.MATCHED_ADDRESS,
+                  m.CONTRACTOR_ID, m.CONTRACTOR_NAME, m.INVOICE_NO,
+                  m.INVOICE_FILE_NAME, m.INVOICE_FILE_TYPE, m.INVOICE_FILE_SIZE,
+                  m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY, m.EXCLUDE_MARGIN, m.APPROVED_DATE,
+                  m.USER_ID, cu.USERNAME AS CREATED_BY_NAME,
+                  m.APPROVED_BY, au.USERNAME AS APPROVED_BY_NAME
+           FROM PM.PM_STATEMENT_MAIN m
+           LEFT JOIN PM.USERS cu ON cu.ID = m.USER_ID
+           LEFT JOIN PM.USERS au ON au.ID = m.APPROVED_BY
+           ${where}
+           ORDER BY m.TXN_DATE DESC, m.TXN_ID DESC`;
 
   const { page, pageSize } = pagination;
   const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
