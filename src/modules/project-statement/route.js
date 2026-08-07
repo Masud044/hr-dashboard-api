@@ -3,9 +3,12 @@ import express from 'express';
 import multer from 'multer';
 import { statementHandler } from './controller.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
+import { protectRouteV2 } from '../auth-v2/auth-v2.middleware.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+router.use( protectRouteV2);
+
 
 router.post('/upload',
   upload.single('file'),
