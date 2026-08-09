@@ -738,9 +738,9 @@ export async function getStagingStats(filters = {}) {
   const { category, categories, ...rest } = filters; // category filter excluded so stats show full breakdown
   const { where, binds } = buildStagingWhere(rest);
 
-  const sql = `SELECT NVL(CATEGORY, 'other') AS CATEGORY, COUNT(*) AS CNT
-               FROM PM.PM_STATEMENT_STAGING ${where}
-               GROUP BY CATEGORY`;
+  const sql = `SELECT NVL(s.CATEGORY, 'other') AS CATEGORY, COUNT(*) AS CNT
+             FROM PM.PM_STATEMENT_STAGING s ${where}
+             GROUP BY s.CATEGORY`;
 
   const result = await poolExecute(sql, binds, {
     outFormat: oracledb.OUT_FORMAT_OBJECT,
@@ -755,67 +755,141 @@ export async function getStagingStats(filters = {}) {
 }
 
 // ── WHERE clause builder, shared by getStagingFiltered / getStagingStats ──
+// function buildStagingWhere(filters = {}) {
+//   let where = "WHERE 1=1";
+//   const binds = {};
+
+//   if (filters.sourceType) {
+//     where += " AND SOURCE_TYPE = :sourceType";
+//     binds.sourceType = filters.sourceType;
+//   }
+//   if (filters.status) {
+//     where += " AND STATUS = :status";
+//     binds.status = filters.status;
+//   }
+//   if (filters.dateFrom) {
+//     where += " AND TXN_DATE >= TO_DATE(:dateFrom, 'YYYY-MM-DD')";
+//     binds.dateFrom = filters.dateFrom;
+//   }
+//   if (filters.dateTo) {
+//     where += " AND TXN_DATE <= TO_DATE(:dateTo, 'YYYY-MM-DD')";
+//     binds.dateTo = filters.dateTo;
+//   }
+//   if (filters.pId) {
+//     where += " AND P_ID = :pId";
+//     binds.pId = filters.pId;
+//   }
+//   if (filters.contractorId) {
+//     where += " AND CONTRACTOR_ID = :contractorId";
+//     binds.contractorId = filters.contractorId;
+//   }
+//   if (filters.invoiceNo) {
+//     where += " AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)";
+//     binds.invoiceNo = `%${filters.invoiceNo}%`;
+//   }
+//   if (filters.amountMin) {
+//     where += " AND AMOUNT >= :amountMin";
+//     binds.amountMin = filters.amountMin;
+//   }
+//   if (filters.amountMax) {
+//     where += " AND AMOUNT <= :amountMax";
+//     binds.amountMax = filters.amountMax;
+//   }
+//     // NEW: exact amount search, sign-agnostic (300 matches both 300 and -300)
+//   if (filters.amount) {
+//     where += " AND ABS(AMOUNT) = :amount";
+//     binds.amount = Math.abs(Number(filters.amount));
+//   }
+//   if (filters.description) {
+//     where += " AND UPPER(DESCRIPTION) LIKE UPPER(:description)";
+//     binds.description = `%${filters.description}%`;
+//   }
+//   if (filters.matchedAddress) {
+//     where += " AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
+//     binds.matchedAddress = `%${filters.matchedAddress}%`;
+//   }
+
+//   // ── single category dropdown filter (existing behavior) ──
+//   if (filters.category) {
+//     where += " AND CATEGORY = :category";
+//     binds.category = filters.category;
+//   }
+
+//   // ── NEW: multi-select checkbox filter, e.g. categories=address,place ──
+//   if (filters.categories) {
+//     const list = String(filters.categories)
+//       .split(",")
+//       .map((c) => c.trim())
+//       .filter(Boolean);
+//     if (list.length > 0) {
+//       const placeholders = list.map((_, i) => `:cat${i}`).join(",");
+//       list.forEach((c, i) => {
+//         binds[`cat${i}`] = c;
+//       });
+//       where += ` AND CATEGORY IN (${placeholders})`;
+//     }
+//   }
+
+//   return { where, binds };
+// }
+
+// ── WHERE clause builder, shared by getStagingFiltered / getStagingStats ──
 function buildStagingWhere(filters = {}) {
   let where = "WHERE 1=1";
   const binds = {};
 
   if (filters.sourceType) {
-    where += " AND SOURCE_TYPE = :sourceType";
+    where += " AND s.SOURCE_TYPE = :sourceType";
     binds.sourceType = filters.sourceType;
   }
   if (filters.status) {
-    where += " AND STATUS = :status";
+    where += " AND s.STATUS = :status";
     binds.status = filters.status;
   }
   if (filters.dateFrom) {
-    where += " AND TXN_DATE >= TO_DATE(:dateFrom, 'YYYY-MM-DD')";
+    where += " AND s.TXN_DATE >= TO_DATE(:dateFrom, 'YYYY-MM-DD')";
     binds.dateFrom = filters.dateFrom;
   }
   if (filters.dateTo) {
-    where += " AND TXN_DATE <= TO_DATE(:dateTo, 'YYYY-MM-DD')";
+    where += " AND s.TXN_DATE <= TO_DATE(:dateTo, 'YYYY-MM-DD')";
     binds.dateTo = filters.dateTo;
   }
   if (filters.pId) {
-    where += " AND P_ID = :pId";
+    where += " AND s.P_ID = :pId";
     binds.pId = filters.pId;
   }
   if (filters.contractorId) {
-    where += " AND CONTRACTOR_ID = :contractorId";
+    where += " AND s.CONTRACTOR_ID = :contractorId";
     binds.contractorId = filters.contractorId;
   }
   if (filters.invoiceNo) {
-    where += " AND UPPER(INVOICE_NO) LIKE UPPER(:invoiceNo)";
+    where += " AND UPPER(s.INVOICE_NO) LIKE UPPER(:invoiceNo)";
     binds.invoiceNo = `%${filters.invoiceNo}%`;
   }
   if (filters.amountMin) {
-    where += " AND AMOUNT >= :amountMin";
+    where += " AND s.AMOUNT >= :amountMin";
     binds.amountMin = filters.amountMin;
   }
   if (filters.amountMax) {
-    where += " AND AMOUNT <= :amountMax";
+    where += " AND s.AMOUNT <= :amountMax";
     binds.amountMax = filters.amountMax;
   }
-    // NEW: exact amount search, sign-agnostic (300 matches both 300 and -300)
   if (filters.amount) {
-    where += " AND ABS(AMOUNT) = :amount";
+    where += " AND ABS(s.AMOUNT) = :amount";
     binds.amount = Math.abs(Number(filters.amount));
   }
   if (filters.description) {
-    where += " AND UPPER(DESCRIPTION) LIKE UPPER(:description)";
+    where += " AND UPPER(s.DESCRIPTION) LIKE UPPER(:description)";
     binds.description = `%${filters.description}%`;
   }
   if (filters.matchedAddress) {
-    where += " AND UPPER(MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
+    where += " AND UPPER(s.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
     binds.matchedAddress = `%${filters.matchedAddress}%`;
   }
-
-  // ── single category dropdown filter (existing behavior) ──
   if (filters.category) {
-    where += " AND CATEGORY = :category";
+    where += " AND s.CATEGORY = :category";
     binds.category = filters.category;
   }
-
-  // ── NEW: multi-select checkbox filter, e.g. categories=address,place ──
   if (filters.categories) {
     const list = String(filters.categories)
       .split(",")
@@ -826,7 +900,7 @@ function buildStagingWhere(filters = {}) {
       list.forEach((c, i) => {
         binds[`cat${i}`] = c;
       });
-      where += ` AND CATEGORY IN (${placeholders})`;
+      where += ` AND s.CATEGORY IN (${placeholders})`;
     }
   }
 
