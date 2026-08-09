@@ -7,8 +7,25 @@ import { protectRouteV2 } from '../auth-v2/auth-v2.middleware.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
-router.use( protectRouteV2);
 
+// ── PUBLIC file-serving routes (no auth required) ──
+// These are hit directly by <img src>, <a href>, and download links,
+// which don't send an Authorization header. Must stay BEFORE
+// router.use(protectRouteV2) below.
+router.get('/staging/:stagingId/invoice',
+  asyncHandler((req, res) => { req.params.action = 'getInvoiceFile'; return statementHandler(req, res); })
+);
+
+router.get('/main/:txnId/invoice',
+  asyncHandler((req, res) => { req.params.action = 'getMainInvoiceFile'; return statementHandler(req, res); })
+);
+
+router.get('/invoices/files/:fileId',
+  asyncHandler((req, res) => { req.params.action = 'getInvoiceFileById'; return statementHandler(req, res); })
+);
+
+// ── Everything below this line requires a valid Bearer token ──
+router.use(protectRouteV2);
 
 router.post('/upload',
   upload.single('file'),
@@ -67,14 +84,6 @@ router.delete('/staging/:stagingId/invoice',
   asyncHandler((req, res) => { req.params.action = 'deleteInvoice'; return statementHandler(req, res); })
 );
 
-router.get('/staging/:stagingId/invoice',
-  asyncHandler((req, res) => { req.params.action = 'getInvoiceFile'; return statementHandler(req, res); })
-);
-
-router.get('/main/:txnId/invoice',
-  asyncHandler((req, res) => { req.params.action = 'getMainInvoiceFile'; return statementHandler(req, res); })
-);
-
 router.post('/non-banking',
   asyncHandler((req, res) => { req.params.action = 'insertNonBanking'; return statementHandler(req, res); })
 );
@@ -116,6 +125,7 @@ router.delete('/invoices/:invoiceId',
 router.delete('/staging/:stagingId',
   asyncHandler((req, res) => { req.params.action = 'deleteStagingRow'; return statementHandler(req, res); })
 );
+
 // ── Individual file management within an invoice group ──
 // NOTE: these must be declared before any conflicting generic routes,
 // and use paths that match what InvoiceSheet.jsx actually calls.
@@ -123,10 +133,6 @@ router.delete('/staging/:stagingId',
 router.post('/invoices/:invoiceId/files',
   upload.single('file'),
   asyncHandler((req, res) => { req.params.action = 'addFileToInvoice'; return statementHandler(req, res); })
-);
-
-router.get('/invoices/files/:fileId',
-  asyncHandler((req, res) => { req.params.action = 'getInvoiceFileById'; return statementHandler(req, res); })
 );
 
 router.delete('/invoices/files/:fileId',
