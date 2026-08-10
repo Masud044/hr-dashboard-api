@@ -1,5 +1,5 @@
 // seedRolePermissions.js
-// Maps ALL permissions to Admin role only (PM schema).
+// Maps ALL permissions to Super Admin role only (PM schema).
 // DataEntry / Worker / Owner permission mapping will be done manually later.
 // Run AFTER: seedRole.js → seedRBAC.js → seedDashboardModules.js → this file
 
@@ -12,15 +12,15 @@ export const seedRolePermissions = async () => {
   try {
     conn = await getConnection();
 
-    // ── 1. Fetch Admin role ID ─────────────────────────────────────────────
+    // ── 1. Fetch Super Admin role ID ───────────────────────────────────────
     const roleRes = await conn.execute(
-      `SELECT ID FROM PM.ROLES WHERE ROLE_NAME = :1`, ["Admin"]
+      `SELECT ID FROM PM.ROLES WHERE ROLE_NAME = :1`, ["Super Admin"]
     );
     if (roleRes.rows.length === 0)
-      throw new Error("Role 'Admin' not found. Run seedRole.js first.");
+      throw new Error("Role 'Super Admin' not found. Run seedRole.js first.");
 
-    const adminId = roleRes.rows[0][0];
-    console.log(`✅ Role → Admin: ${adminId}`);
+    const superAdminId = roleRes.rows[0][0];
+    console.log(`✅ Role → Super Admin: ${superAdminId}`);
 
     // ── 2. Fetch all permissions ───────────────────────────────────────────
     const allPermsRes = await conn.execute(
@@ -53,10 +53,10 @@ export const seedRolePermissions = async () => {
       }
     };
 
-    // ── 4. Assign ALL permissions to Admin ────────────────────────────────
-    console.log("👑 Seeding ADMIN (full access to all permissions)...");
+    // ── 4. Assign ALL permissions to Super Admin ───────────────────────────
+    console.log("👑 Seeding SUPER ADMIN (full access to all permissions)...");
     for (const code of Object.keys(permMap)) {
-      await assign(adminId, code);
+      await assign(superAdminId, code);
       console.log(`  ✓ ${code}`);
     }
 
@@ -67,14 +67,14 @@ export const seedRolePermissions = async () => {
       `SELECT r.ROLE_NAME, COUNT(rp.PERMISSION_ID) AS CNT
        FROM PM.ROLES r
        LEFT JOIN PM.ROLE_PERMISSIONS rp ON r.ID = rp.ROLE_ID
-       WHERE r.ROLE_NAME = 'Admin'
+       WHERE r.ROLE_NAME = 'Super Admin'
        GROUP BY r.ROLE_NAME`
     );
     console.log("\n📊 Final Role–Permission Summary:");
     for (const [roleName, cnt] of countRes.rows) {
       console.log(`  ${String(roleName).padEnd(12)}: ${cnt} permissions`);
     }
-    console.log("\n✅ Role–Permission Mapping Complete (Admin only)!");
+    console.log("\n✅ Role–Permission Mapping Complete (Super Admin only)!");
 
   } catch (err) {
     if (conn) await conn.rollback();

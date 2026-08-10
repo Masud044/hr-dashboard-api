@@ -156,12 +156,13 @@ export async function insertAttendance(data) {
       `INSERT INTO PM.PM_WORKER_ATTENDANCE
        (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE, HOURS_WORKED, REMARKS, CREATED_BY)
        VALUES
-       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE, :HOURS_WORKED, :REMARKS, :CREATED_BY)
+       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE,:CALC_BASIS, :HOURS_WORKED, :REMARKS, :CREATED_BY)
        RETURNING ATTENDANCE_ID INTO :NEW_ID`,
       {
         WORKER_ID:       Number(data.WORKER_ID),
         PROJECT_ID:      Number(data.PROJECT_ID),
         ATTENDANCE_DATE: attendanceDate,
+        CALC_BASIS: 'HOUR',
         HOURS_WORKED:    Number(data.HOURS_WORKED),
         REMARKS:         data.REMARKS ?? null,
         CREATED_BY:      data.CREATED_BY ?? null,
