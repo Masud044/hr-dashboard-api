@@ -119,7 +119,8 @@ CREATE TABLE ticket_attachments (
     ticket_id      NUMBER        NOT NULL,
     comment_id     NUMBER,
     file_name      VARCHAR2(255) NOT NULL,
-    file_path      VARCHAR2(500) NOT NULL,
+    file_type      VARCHAR2(100),
+    file_data      BLOB,
     file_size_kb   NUMBER(10),
     uploaded_by    NUMBER        NOT NULL,           -- PM.USERS.ID
     uploaded_at    TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL
