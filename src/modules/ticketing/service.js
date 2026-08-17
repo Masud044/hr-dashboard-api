@@ -1,7 +1,7 @@
 // src/modules/ticketing/service.js
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
-import { calcDueDateNow } from "./slaCalculator.js";
+import { AppError } from "../../utils/appError.js";
 
 // ─────────────────────────────────────────────
 // LOOKUPS
@@ -25,47 +25,92 @@ export async function getLookups() {
 }
 
 // ─────────────────────────────────────────────
-// CREATE TICKET
+// CREATE TICKET (project-scoped)
 // ─────────────────────────────────────────────
 export async function createTicket(data, actorId) {
   const conn = await getConnection();
   try {
+    const projectId = data.PROJECT_ID != null ? Number(data.PROJECT_ID) : null;
+    const contractorId = data.CONTRACTOR_ID != null ? Number(data.CONTRACTOR_ID) : null;
+    const ownerId = data.OWNER_ID != null ? Number(data.OWNER_ID) : null;
+    const priorityId = Number(data.PRIORITY_ID);
+
+    // No FK constraints in this DB — validate referential targets explicitly.
+    // project_id / contractor_id / owner_id are optional; only validate when provided.
+    if (projectId != null) {
+      const projectRow = await conn.execute(
+        `SELECT P_ID FROM PM.PM_PROJECT WHERE P_ID = :id`,
+        { id: projectId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      if (!projectRow.rows.length) {
+        throw new AppError(`Project ${projectId} does not exist.`, 400);
+      }
+    }
+
+    if (contractorId != null) {
+      const contractorRow = await conn.execute(
+        `SELECT CONTRATOR_ID FROM PM.PM_CONTRACTOR_INFO WHERE CONTRATOR_ID = :id`,
+        { id: contractorId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      if (!contractorRow.rows.length) {
+        throw new AppError(`Contractor ${contractorId} does not exist.`, 400);
+      }
+    }
+
+    if (ownerId != null) {
+      const ownerRow = await conn.execute(
+        `SELECT ID FROM PM.PM_OWNER_INFO WHERE ID = :id`,
+        { id: ownerId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      if (!ownerRow.rows.length) {
+        throw new AppError(`Owner ${ownerId} does not exist.`, 400);
+      }
+    }
+
+    const prioRow = await conn.execute(
+      `SELECT priority_id FROM ticket_priorities WHERE priority_id = :id`,
+      { id: priorityId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!prioRow.rows.length) {
+      throw new AppError(`Invalid priority_id ${priorityId}.`, 400);
+    }
+
     const statusRow = await conn.execute(
-      `SELECT status_id FROM ticket_statuses WHERE status_name = 'NEW'`,
+      `SELECT status_id FROM ticket_statuses WHERE status_name = 'OPEN'`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     const statusId = statusRow.rows[0]?.STATUS_ID;
-    if (!statusId) throw new Error("NEW status not configured");
-
-    const prioRow = await conn.execute(
-      `SELECT sla_hours FROM ticket_priorities WHERE priority_id = :id`,
-      { id: data.PRIORITY_ID },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    const slaHours = prioRow.rows[0]?.SLA_HOURS;
-    if (!slaHours) throw new Error("Invalid priority_id");
-
-    const dueDate = await calcDueDateNow(slaHours);
+    if (!statusId) throw new AppError("OPEN status not configured.", 500);
 
     const result = await conn.execute(
       `INSERT INTO tickets
-        (created_by, requested_for, category_id, priority_id, status_id,
-         subject, description, channel, due_date)
+        (project_id, contractor_id, owner_id, created_by, assigned_worker_id,
+         ticket_type, category_id, priority_id, status_id,
+         subject, description, due_date, change_amount)
        VALUES
-        (:created_by, :requested_for, :category_id, :priority_id, :status_id,
-         :subject, :description, :channel, :due_date)
+        (:project_id, :contractor_id, :owner_id, :created_by, :assigned_worker_id,
+         :ticket_type, :category_id, :priority_id, :status_id,
+         :subject, :description, :due_date, :change_amount)
        RETURNING ticket_id, ticket_number INTO :new_id, :new_number`,
       {
+        project_id: projectId,
+        contractor_id: contractorId,
+        owner_id: ownerId,
         created_by: actorId,
-        requested_for: data.REQUESTED_FOR ?? actorId,
-        category_id: data.CATEGORY_ID,
-        priority_id: data.PRIORITY_ID,
+        assigned_worker_id: data.ASSIGNED_WORKER_ID ?? null,
+        ticket_type: data.TICKET_TYPE,
+        category_id: data.CATEGORY_ID ?? null,
+        priority_id: priorityId,
         status_id: statusId,
         subject: data.SUBJECT,
         description: data.DESCRIPTION ?? null,
-        channel: data.CHANNEL ?? "WEB",
-        due_date: dueDate,
+        due_date: data.DUE_DATE ? new Date(data.DUE_DATE) : null,
+        change_amount: data.TICKET_TYPE === "VARIATION" ? Number(data.CHANGE_AMOUNT ?? null) : null,
         new_id: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
         new_number: { dir: oracledb.BIND_OUT, type: oracledb.STRING },
       },
@@ -86,27 +131,35 @@ export async function createTicket(data, actorId) {
 }
 
 // ─────────────────────────────────────────────
-// LIST TICKETS (dashboard / "my tickets")
+// LIST TICKETS (dashboard / project-scoped list)
+// access: viewAll=false + actorId => only tickets created by actorId
 // ─────────────────────────────────────────────
-export async function listTickets(filters = {}) {
+export async function listTickets(filters = {}, actorId = null, viewAll = false) {
   const conn = await getConnection();
   try {
     const conditions = [];
     const binds = {};
 
-    if (filters.STATUS_ID)      { conditions.push(`t.status_id = :status_id`); binds.status_id = Number(filters.STATUS_ID); }
-    if (filters.PRIORITY_ID)    { conditions.push(`t.priority_id = :priority_id`); binds.priority_id = Number(filters.PRIORITY_ID); }
-    if (filters.CATEGORY_ID)    { conditions.push(`t.category_id = :category_id`); binds.category_id = Number(filters.CATEGORY_ID); }
-    if (filters.AGENT_ID)       { conditions.push(`t.agent_id = :agent_id`); binds.agent_id = Number(filters.AGENT_ID); }
-    if (filters.REQUESTED_FOR)  { conditions.push(`t.requested_for = :requested_for`); binds.requested_for = Number(filters.REQUESTED_FOR); }
+    if (filters.PROJECT_ID)     { conditions.push(`t.project_id = :project_id`);     binds.project_id = Number(filters.PROJECT_ID); }
+    if (filters.CONTRACTOR_ID)  { conditions.push(`t.contractor_id = :contractor_id`); binds.contractor_id = Number(filters.CONTRACTOR_ID); }
+    if (filters.OWNER_ID)       { conditions.push(`t.owner_id = :owner_id`);         binds.owner_id = Number(filters.OWNER_ID); }
+    if (filters.TICKET_TYPE)    { conditions.push(`t.ticket_type = :ticket_type`);    binds.ticket_type = filters.TICKET_TYPE; }
+    if (filters.STATUS_ID)      { conditions.push(`t.status_id = :status_id`);        binds.status_id = Number(filters.STATUS_ID); }
+    if (filters.PRIORITY_ID)    { conditions.push(`t.priority_id = :priority_id`);    binds.priority_id = Number(filters.PRIORITY_ID); }
+    if (filters.CATEGORY_ID)    { conditions.push(`t.category_id = :category_id`);    binds.category_id = Number(filters.CATEGORY_ID); }
     if (filters.OPEN_ONLY === "true") conditions.push(`st.is_closed = 'N'`);
+
+    if (!viewAll && actorId) {
+      conditions.push(`t.created_by = :created_by`);
+      binds.created_by = actorId;
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const countRes = await conn.execute(
       `SELECT COUNT(*) AS TOTAL
        FROM tickets t
-       JOIN ticket_categories cat ON cat.category_id = t.category_id
+       LEFT JOIN ticket_categories cat ON cat.category_id = t.category_id
        JOIN ticket_priorities pr  ON pr.priority_id  = t.priority_id
        JOIN ticket_statuses   st  ON st.status_id    = t.status_id
        ${where}`,
@@ -123,14 +176,19 @@ export async function listTickets(filters = {}) {
 
     const result = await conn.execute(
       `SELECT
-         t.ticket_id, t.ticket_number, t.subject, t.created_by, t.requested_for,
-         t.agent_id, t.channel, t.created_at, t.due_date, t.resolved_at, t.closed_at,
-         t.satisfaction_rating,
-         cat.category_name, pr.priority_name, st.status_name, st.is_closed
+         t.ticket_id, t.ticket_number, t.project_id, t.contractor_id, t.owner_id,
+         t.created_by, t.assigned_worker_id, t.ticket_type,
+         t.category_id, t.priority_id, t.status_id,
+         t.subject, t.created_at, t.due_date, t.resolved_at, t.closed_at, t.change_amount,
+         pr.priority_name, st.status_name, st.is_closed, cat.category_name,
+         p.P_NAME AS project_name, c.CONTRATOR_NAME AS contractor_name, o.O_NAME AS owner_name
        FROM tickets t
-       JOIN ticket_categories cat ON cat.category_id = t.category_id
+       LEFT JOIN ticket_categories cat ON cat.category_id = t.category_id
        JOIN ticket_priorities pr  ON pr.priority_id  = t.priority_id
        JOIN ticket_statuses   st  ON st.status_id    = t.status_id
+       LEFT JOIN PM.PM_PROJECT p         ON p.P_ID = t.project_id
+       LEFT JOIN PM.PM_CONTRACTOR_INFO c ON c.CONTRATOR_ID = t.contractor_id
+       LEFT JOIN PM.PM_OWNER_INFO o      ON o.ID = t.owner_id
        ${where}
        ORDER BY t.created_at DESC
        OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`,
@@ -143,24 +201,35 @@ export async function listTickets(filters = {}) {
     await conn.close();
   }
 }
+
 // ─────────────────────────────────────────────
 // GET TICKET DETAIL (header + comments + history + attachments)
+// access: viewAll=false + actorId => only if created_by === actorId
 // ─────────────────────────────────────────────
-export async function getTicket(ticketId) {
+export async function getTicket(ticketId, actorId = null, viewAll = false) {
   const conn = await getConnection();
   try {
     const header = await conn.execute(
       `SELECT
-         t.*, cat.category_name, pr.priority_name, st.status_name, st.is_closed
+         t.*, pr.priority_name, st.status_name, st.is_closed, cat.category_name,
+         p.P_NAME AS project_name, c.CONTRATOR_NAME AS contractor_name, o.O_NAME AS owner_name
        FROM tickets t
-       JOIN ticket_categories cat ON cat.category_id = t.category_id
+       LEFT JOIN ticket_categories cat ON cat.category_id = t.category_id
        JOIN ticket_priorities pr  ON pr.priority_id  = t.priority_id
        JOIN ticket_statuses   st  ON st.status_id    = t.status_id
+       LEFT JOIN PM.PM_PROJECT p         ON p.P_ID = t.project_id
+       LEFT JOIN PM.PM_CONTRACTOR_INFO c ON c.CONTRATOR_ID = t.contractor_id
+       LEFT JOIN PM.PM_OWNER_INFO o      ON o.ID = t.owner_id
        WHERE t.ticket_id = :id`,
       { id: ticketId },
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     if (!header.rows.length) return null;
+
+    const ticket = header.rows[0];
+    if (!viewAll && actorId && Number(ticket.CREATED_BY) !== Number(actorId)) {
+      return null;
+    }
 
     const comments = await conn.execute(
       `SELECT * FROM ticket_comments WHERE ticket_id = :id ORDER BY created_at ASC`,
@@ -179,7 +248,7 @@ export async function getTicket(ticketId) {
     );
 
     return {
-      ticket: header.rows[0],
+      ticket,
       comments: comments.rows,
       history: history.rows,
       attachments: attachments.rows,
@@ -190,35 +259,41 @@ export async function getTicket(ticketId) {
 }
 
 // ─────────────────────────────────────────────
-// ASSIGN AGENT (auto NEW → OPEN)
+// ASSIGN WORKER (assigned_worker_id, writes ticket_history)
 // ─────────────────────────────────────────────
-export async function assignAgent(ticketId, agentId) {
+export async function assignWorker(ticketId, workerId, actorId) {
   const conn = await getConnection();
   try {
-    const cur = await conn.execute(
-      `SELECT s.status_name FROM tickets t
-       JOIN ticket_statuses s ON s.status_id = t.status_id
-       WHERE t.ticket_id = :id`,
+    const curRow = await conn.execute(
+      `SELECT assigned_worker_id FROM tickets WHERE ticket_id = :id`,
       { id: ticketId },
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
-    if (!cur.rows.length) throw new Error("Ticket not found");
+    if (!curRow.rows.length) throw new AppError("Ticket not found.", 404);
+    const oldWorkerId = curRow.rows[0].ASSIGNED_WORKER_ID;
 
-    await conn.execute(
-      `UPDATE tickets SET agent_id = :agent_id WHERE ticket_id = :id`,
-      { agent_id: agentId, id: ticketId },
+    const result = await conn.execute(
+      `UPDATE tickets SET assigned_worker_id = :worker_id WHERE ticket_id = :id`,
+      { worker_id: workerId, id: ticketId },
       { autoCommit: false }
     );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Ticket not found.", 404);
+    }
 
-    if (cur.rows[0].STATUS_NAME === "NEW") {
-      const openStatus = await conn.execute(
-        `SELECT status_id FROM ticket_statuses WHERE status_name = 'OPEN'`,
-        {},
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
-      );
+    if (Number(oldWorkerId ?? -1) !== Number(workerId ?? -1)) {
       await conn.execute(
-        `UPDATE tickets SET status_id = :sid WHERE ticket_id = :id`,
-        { sid: openStatus.rows[0].STATUS_ID, id: ticketId },
+        `INSERT INTO ticket_history
+          (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+         VALUES
+          (:ticket_id, 'TRADE_CONTACT', :old_value, :new_value, 'USER', :changed_by_id)`,
+        {
+          ticket_id: ticketId,
+          old_value: oldWorkerId != null ? String(oldWorkerId) : null,
+          new_value: workerId != null ? String(workerId) : null,
+          changed_by_id: actorId ?? null,
+        },
         { autoCommit: false }
       );
     }
@@ -234,9 +309,9 @@ export async function assignAgent(ticketId, agentId) {
 }
 
 // ─────────────────────────────────────────────
-// UPDATE STATUS (stamps resolved_at / closed_at)
+// UPDATE STATUS (stamps closed_at, writes ticket_history)
 // ─────────────────────────────────────────────
-export async function updateStatus(ticketId, statusName) {
+export async function updateStatus(ticketId, statusName, actorId) {
   const conn = await getConnection();
   try {
     const statusRow = await conn.execute(
@@ -245,30 +320,62 @@ export async function updateStatus(ticketId, statusName) {
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     const statusId = statusRow.rows[0]?.STATUS_ID;
-    if (!statusId) throw new Error(`Unknown status: ${statusName}`);
+    if (!statusId) throw new AppError(`Unknown status: ${statusName}`, 400);
+
+    const curRow = await conn.execute(
+      `SELECT status_id FROM tickets WHERE ticket_id = :id`,
+      { id: ticketId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!curRow.rows.length) throw new AppError("Ticket not found.", 404);
+    const oldStatusId = curRow.rows[0].STATUS_ID;
 
     const result = await conn.execute(
       `UPDATE tickets
-       SET status_id   = :status_id,
-           resolved_at = CASE WHEN :status_name = 'RESOLVED' THEN SYSTIMESTAMP ELSE resolved_at END,
-           closed_at   = CASE WHEN :status_name = 'CLOSED'   THEN SYSTIMESTAMP ELSE closed_at END
+       SET status_id = :status_id,
+           closed_at = CASE WHEN :status_name = 'CLOSED' THEN SYSTIMESTAMP ELSE closed_at END
        WHERE ticket_id = :id`,
       { status_id: statusId, status_name: statusName, id: ticketId },
-      { autoCommit: true }
+      { autoCommit: false }
     );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Ticket not found.", 404);
+    }
+
+    if (Number(oldStatusId) !== Number(statusId)) {
+      await conn.execute(
+        `INSERT INTO ticket_history
+          (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+         VALUES
+          (:ticket_id, 'STATUS', :old_value, :new_value, 'USER', :changed_by_id)`,
+        {
+          ticket_id: ticketId,
+          old_value: String(oldStatusId),
+          new_value: String(statusId),
+          changed_by_id: actorId ?? null,
+        },
+        { autoCommit: false }
+      );
+    }
+
+    await conn.commit();
     return result.rowsAffected;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
   } finally {
     await conn.close();
   }
 }
 
 // ─────────────────────────────────────────────
-// ADD COMMENT (auto-reopens PENDING_USER tickets)
+// ADD COMMENT
 // ─────────────────────────────────────────────
 export async function addComment(ticketId, data, actorId) {
   const conn = await getConnection();
   try {
-    await conn.execute(
+    const result = await conn.execute(
       `INSERT INTO ticket_comments
         (ticket_id, author_type, author_id, comment_text, is_internal, canned_response_id)
        VALUES
@@ -283,18 +390,10 @@ export async function addComment(ticketId, data, actorId) {
       },
       { autoCommit: false }
     );
-
-    if (data.AUTHOR_TYPE === "USER") {
-      await conn.execute(
-        `UPDATE tickets
-         SET status_id = (SELECT status_id FROM ticket_statuses WHERE status_name = 'OPEN')
-         WHERE ticket_id = :id
-           AND status_id = (SELECT status_id FROM ticket_statuses WHERE status_name = 'PENDING_USER')`,
-        { id: ticketId },
-        { autoCommit: false }
-      );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Ticket not found.", 404);
     }
-
     await conn.commit();
     return { success: true };
   } catch (err) {
@@ -330,25 +429,6 @@ export async function addAttachment(ticketId, fileMeta, uploadedBy) {
       { autoCommit: true }
     );
     return result.outBinds.new_id[0];
-  } finally {
-    await conn.close();
-  }
-}
-
-// ─────────────────────────────────────────────
-// CSAT RATING
-// ─────────────────────────────────────────────
-export async function rateTicket(ticketId, rating, comment) {
-  const conn = await getConnection();
-  try {
-    const result = await conn.execute(
-      `UPDATE tickets
-       SET satisfaction_rating = :rating, satisfaction_comment = :comment
-       WHERE ticket_id = :id`,
-      { rating, comment: comment ?? null, id: ticketId },
-      { autoCommit: true }
-    );
-    return result.rowsAffected;
   } finally {
     await conn.close();
   }
@@ -394,38 +474,8 @@ export async function createCannedResponse(data, actorId) {
 }
 
 // ─────────────────────────────────────────────
-// DASHBOARD VIEWS
+// ATTACHMENT FILE
 // ─────────────────────────────────────────────
-export async function getOpenTicketsView() {
-  const conn = await getConnection();
-  try {
-    const result = await conn.execute(
-      `SELECT * FROM vw_open_tickets ORDER BY hours_overdue DESC, due_date ASC`,
-      {},
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    return result.rows;
-  } finally {
-    await conn.close();
-  }
-}
-
-export async function getAgentWorkloadView() {
-  const conn = await getConnection();
-  try {
-    const result = await conn.execute(
-      `SELECT * FROM vw_agent_workload ORDER BY open_tickets DESC`,
-      {},
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    return result.rows;
-  } finally {
-    await conn.close();
-  }
-}
-
-
-
 export async function getAttachment(attachmentId) {
   const conn = await getConnection();
   try {
