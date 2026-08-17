@@ -8,21 +8,15 @@ import { protectRouteV2 } from "../auth-v2/auth-v2.middleware.js";
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ── GET routes — no auth for now (per current dev phase) ──
+
+
+
 router.get("/lookups",
   asyncHandler((req, res) => { req.params.action = "getLookups"; return ticketHandler(req, res); })
 );
 
 router.get("/canned-responses",
   asyncHandler((req, res) => { req.params.action = "listCannedResponses"; return ticketHandler(req, res); })
-);
-
-router.get("/dashboard/open",
-  asyncHandler((req, res) => { req.params.action = "getOpenTicketsView"; return ticketHandler(req, res); })
-);
-
-router.get("/dashboard/agent-workload",
-  asyncHandler((req, res) => { req.params.action = "getAgentWorkloadView"; return ticketHandler(req, res); })
 );
 
 router.get("/:id",
@@ -37,15 +31,14 @@ router.get("/attachments/:attachmentId/file",
   asyncHandler((req, res) => { req.params.action = "getAttachmentFile"; return ticketHandler(req, res); })
 );
 
-// ── Everything below requires a valid Bearer token ──
 router.use(protectRouteV2);
 
 router.post("/",
   asyncHandler((req, res) => { req.params.action = "createTicket"; return ticketHandler(req, res); })
 );
 
-router.put("/:id/assign",
-  asyncHandler((req, res) => { req.params.action = "assignAgent"; return ticketHandler(req, res); })
+router.put("/:id/worker",
+  asyncHandler((req, res) => { req.params.action = "assignWorker"; return ticketHandler(req, res); })
 );
 
 router.put("/:id/status",
@@ -59,10 +52,6 @@ router.post("/:id/comments",
 router.post("/:id/attachments",
   upload.single("file"),
   asyncHandler((req, res) => { req.params.action = "addAttachment"; return ticketHandler(req, res); })
-);
-
-router.post("/:id/rating",
-  asyncHandler((req, res) => { req.params.action = "rateTicket"; return ticketHandler(req, res); })
 );
 
 router.post("/canned-responses",

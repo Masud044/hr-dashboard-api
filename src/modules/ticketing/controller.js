@@ -1,13 +1,21 @@
 // src/modules/ticketing/controller.js
 import * as svc from "./service.js";
 
+const TICKET_TYPES = ["CHANGE_REQUEST", "VARIATION", "SPECIAL_NOTE"];
+const AUTHOR_TYPES = ["USER", "AGENT", "SYSTEM"];
+
+const hasPermission = (req, code) =>
+  Array.isArray(req.user?.permissions) && req.user.permissions.includes(code);
+
 // ─────────────────────────────────────────────
 // SINGLE ACTION-BASED HANDLER
 // req.params.action is set by route.js before calling this
 // ─────────────────────────────────────────────
 export async function ticketHandler(req, res) {
   const action = req.params.action;
-  const actorId = req.user?.id ?? req.body?.ACTOR_ID ?? null; // fallback while GET routes are unauth'd
+  const actorId = req.user?.id ?? null;
+  // view_all permission → unrestricted; otherwise self-only (created_by = actor)
+  const viewAll = hasPermission(req, "TICKET_VIEW_ALL");
 
   switch (action) {
     // ── LOOKUPS ─────────────────────────────
@@ -18,32 +26,48 @@ export async function ticketHandler(req, res) {
 
     // ── TICKETS ─────────────────────────────
     case "createTicket": {
-      if (!req.body?.SUBJECT || !req.body?.CATEGORY_ID || !req.body?.PRIORITY_ID) {
-        return res.status(400).json({ success: false, message: "SUBJECT, CATEGORY_ID, PRIORITY_ID are required." });
+      const b = req.body ?? {};
+      if (!b.SUBJECT || !b.PRIORITY_ID || !b.TICKET_TYPE) {
+        return res.status(400).json({
+          success: false,
+          message: "SUBJECT, PRIORITY_ID, TICKET_TYPE are required.",
+        });
       }
-      const data = await svc.createTicket(req.body, actorId);
+      if (!TICKET_TYPES.includes(b.TICKET_TYPE)) {
+        return res.status(400).json({
+          success: false,
+          message: `TICKET_TYPE must be one of: ${TICKET_TYPES.join(", ")}.`,
+        });
+      }
+      if (b.TICKET_TYPE === "VARIATION" && (b.CHANGE_AMOUNT === undefined || b.CHANGE_AMOUNT === null || b.CHANGE_AMOUNT === "")) {
+        return res.status(400).json({
+          success: false,
+          message: "CHANGE_AMOUNT is required when TICKET_TYPE is VARIATION.",
+        });
+      }
+      const data = await svc.createTicket(b, actorId);
       return res.status(201).json({ success: true, message: "Ticket created.", data });
     }
 
-   case "listTickets": {
-  const result = await svc.listTickets(req.query);
-  return res.json({ success: true, ...result });
-}
+    case "listTickets": {
+      const result = await svc.listTickets(req.query, actorId, viewAll);
+      return res.json({ success: true, ...result });
+    }
 
     case "getTicket": {
       const ticketId = Number(req.params.id);
-      const data = await svc.getTicket(ticketId);
+      const data = await svc.getTicket(ticketId, actorId, viewAll);
       if (!data) return res.status(404).json({ success: false, message: "Ticket not found." });
       return res.json({ success: true, data });
     }
 
-    case "assignAgent": {
+    case "assignWorker": {
       const ticketId = Number(req.params.id);
-      if (!req.body?.AGENT_ID) {
-        return res.status(400).json({ success: false, message: "AGENT_ID is required." });
+      if (!req.body?.WORKER_ID) {
+        return res.status(400).json({ success: false, message: "WORKER_ID is required." });
       }
-      await svc.assignAgent(ticketId, req.body.AGENT_ID);
-      return res.json({ success: true, message: "Agent assigned." });
+      await svc.assignWorker(ticketId, Number(req.body.WORKER_ID), actorId);
+      return res.json({ success: true, message: "Worker assigned." });
     }
 
     case "updateStatus": {
@@ -51,7 +75,7 @@ export async function ticketHandler(req, res) {
       if (!req.body?.STATUS_NAME) {
         return res.status(400).json({ success: false, message: "STATUS_NAME is required." });
       }
-      const rows = await svc.updateStatus(ticketId, req.body.STATUS_NAME);
+      const rows = await svc.updateStatus(ticketId, req.body.STATUS_NAME, actorId);
       if (!rows) return res.status(404).json({ success: false, message: "Ticket not found." });
       return res.json({ success: true, message: "Status updated." });
     }
@@ -59,49 +83,41 @@ export async function ticketHandler(req, res) {
     // ── COMMENTS ─────────────────────────────
     case "addComment": {
       const ticketId = Number(req.params.id);
-      if (!req.body?.COMMENT_TEXT || !req.body?.AUTHOR_TYPE) {
+      const b = req.body ?? {};
+      if (!b.COMMENT_TEXT || !b.AUTHOR_TYPE) {
         return res.status(400).json({ success: false, message: "COMMENT_TEXT and AUTHOR_TYPE are required." });
       }
-      await svc.addComment(ticketId, req.body, actorId);
+      if (!AUTHOR_TYPES.includes(b.AUTHOR_TYPE)) {
+        return res.status(400).json({ success: false, message: `AUTHOR_TYPE must be one of: ${AUTHOR_TYPES.join(", ")}.` });
+      }
+      await svc.addComment(ticketId, b, actorId);
       return res.status(201).json({ success: true, message: "Comment added." });
     }
 
     // ── ATTACHMENTS ──────────────────────────
-   case "addAttachment": {
-  const ticketId = Number(req.params.id);
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: "File is required." });
-  }
-  const fileMeta = {
-    FILE_NAME: req.file.originalname,
-    FILE_TYPE: req.file.mimetype,
-    FILE_DATA: req.file.buffer,
-    FILE_SIZE_KB: Math.round((req.file.size ?? 0) / 1024),
-    COMMENT_ID: req.body.COMMENT_ID ?? null,
-  };
-  const id = await svc.addAttachment(ticketId, fileMeta, actorId);
-  return res.status(201).json({ success: true, message: "Attachment added.", attachment_id: id });
-}
-
-case "getAttachmentFile": {
-  const attachmentId = Number(req.params.attachmentId);
-  const file = await svc.getAttachment(attachmentId);
-  if (!file) return res.status(404).json({ success: false, message: "File not found." });
-  res.setHeader("Content-Type", file.FILE_TYPE || "application/octet-stream");
-  res.setHeader("Content-Disposition", `inline; filename="${file.FILE_NAME}"`);
-  return res.send(file.FILE_DATA);
-}
-
-    // ── CSAT ─────────────────────────────────
-    case "rateTicket": {
+    case "addAttachment": {
       const ticketId = Number(req.params.id);
-      const rating = Number(req.body?.RATING);
-      if (!rating || rating < 1 || rating > 5) {
-        return res.status(400).json({ success: false, message: "RATING must be 1-5." });
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: "File is required." });
       }
-      const rows = await svc.rateTicket(ticketId, rating, req.body.COMMENT);
-      if (!rows) return res.status(404).json({ success: false, message: "Ticket not found." });
-      return res.json({ success: true, message: "Rating saved." });
+      const fileMeta = {
+        FILE_NAME: req.file.originalname,
+        FILE_TYPE: req.file.mimetype,
+        FILE_DATA: req.file.buffer,
+        FILE_SIZE_KB: Math.round((req.file.size ?? 0) / 1024),
+        COMMENT_ID: req.body.COMMENT_ID ?? null,
+      };
+      const id = await svc.addAttachment(ticketId, fileMeta, actorId);
+      return res.status(201).json({ success: true, message: "Attachment added.", attachment_id: id });
+    }
+
+    case "getAttachmentFile": {
+      const attachmentId = Number(req.params.attachmentId);
+      const file = await svc.getAttachment(attachmentId);
+      if (!file) return res.status(404).json({ success: false, message: "File not found." });
+      res.setHeader("Content-Type", file.FILE_TYPE || "application/octet-stream");
+      res.setHeader("Content-Disposition", `inline; filename="${file.FILE_NAME}"`);
+      return res.send(file.FILE_DATA);
     }
 
     // ── CANNED RESPONSES ─────────────────────
@@ -116,17 +132,6 @@ case "getAttachmentFile": {
       }
       const id = await svc.createCannedResponse(req.body, actorId);
       return res.status(201).json({ success: true, message: "Canned response created.", response_id: id });
-    }
-
-    // ── DASHBOARD ─────────────────────────────
-    case "getOpenTicketsView": {
-      const data = await svc.getOpenTicketsView();
-      return res.json({ success: true, count: data.length, data });
-    }
-
-    case "getAgentWorkloadView": {
-      const data = await svc.getAgentWorkloadView();
-      return res.json({ success: true, count: data.length, data });
     }
 
     default:

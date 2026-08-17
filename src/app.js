@@ -37,6 +37,10 @@ import workerAttendanceReportRoutes from "./modules/worker-attendance/report.rou
 
 import ticketingRoutes from "./modules/ticketing/route.js";
 
+// test todo
+import todoRoutes from "./modules/todo/route.js";
+
+
 const app = express();
 
 app.use(express.json());
@@ -110,6 +114,9 @@ app.use("/api/worker-attendance", workerAttendanceRoutes);
 app.use("/api/worker-attendance", workerAttendanceReportRoutes);
 
 app.use("/api/ticketing", ticketingRoutes);
+
+// test todo
+app.use("/api/todo", todoRoutes);
 app.use(errorMiddleware);
 
 export default app;
