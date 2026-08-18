@@ -19,11 +19,11 @@ router.get("/canned-responses",
   asyncHandler((req, res) => { req.params.action = "listCannedResponses"; return ticketHandler(req, res); })
 );
 
-router.get("/:id",
+router.get("/:id", protectRouteV2,
   asyncHandler((req, res) => { req.params.action = "getTicket"; return ticketHandler(req, res); })
 );
 
-router.get("/",
+router.get("/",protectRouteV2,
   asyncHandler((req, res) => { req.params.action = "listTickets"; return ticketHandler(req, res); })
 );
 
