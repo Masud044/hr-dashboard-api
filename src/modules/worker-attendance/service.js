@@ -224,12 +224,20 @@ export async function searchAttendance(filters) {
     const total = countRes.rows[0].TOTAL;
 
     // 2. Get paginated data
-    const page = Math.max(1, Number(filters.page || 1));
+       const page = Math.max(1, Number(filters.page || 1));
     const limit = Math.max(1, Number(filters.limit || 20));
     const offset = (page - 1) * limit;
 
     binds.limit = limit;
     binds.offset = offset;
+
+    // ── Sorting (whitelisted to prevent SQL injection) ──────────
+    const SORT_COLUMNS = {
+      ATTENDANCE_DATE: "ATTENDANCE_DATE",
+      HOURS_WORKED: "HOURS_WORKED",
+    };
+    const sortCol = SORT_COLUMNS[filters.sortBy] || "ATTENDANCE_DATE";
+    const sortDir = String(filters.sortOrder).toUpperCase() === "ASC" ? "ASC" : "DESC";
 
     const dataSql = `
       SELECT 
@@ -240,7 +248,7 @@ export async function searchAttendance(filters) {
         TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
       FROM PM.PM_WORKER_ATTENDANCE
       ${whereStr}
-      ORDER BY ATTENDANCE_DATE DESC, ATTENDANCE_ID DESC
+      ORDER BY ${sortCol} ${sortDir}, ATTENDANCE_ID ${sortDir}
       OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
     `;
 
@@ -455,7 +463,7 @@ export async function getWorkerCostsByProject(project_id) {
       SELECT
         a.ATTENDANCE_ID, a.WORKER_ID, w.WORKER_NAME,
         TO_CHAR(a.ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
-        a.CALC_BASIS, a.HOURS_WORKED, a.DAYS_WORKED,
+        a.CALC_BASIS, a.HOURS_WORKED, a.DAYS_WORKED, a.REMARKS,
         r.RATE_PER_HOUR, r.RATE_PER_DAY,
         CASE
           WHEN a.CALC_BASIS = 'HOUR' THEN a.HOURS_WORKED * r.RATE_PER_HOUR
