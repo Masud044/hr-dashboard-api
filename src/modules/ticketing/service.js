@@ -132,9 +132,10 @@ export async function createTicket(data, actorId) {
 
 // ─────────────────────────────────────────────
 // LIST TICKETS (dashboard / project-scoped list)
-// access: viewAll=false + actorId => only tickets created by actorId
+// access: viewAll=false + actorId => only tickets created by actorId,
+//         or tied to actor via owner_id / assigned_worker_id / contractor_id (by userType)
 // ─────────────────────────────────────────────
-export async function listTickets(filters = {}, actorId = null, viewAll = false) {
+export async function listTickets(filters = {}, actorId = null, viewAll = false, userType = null, refId = null) {
   const conn = await getConnection();
   try {
     const conditions = [];
@@ -150,8 +151,19 @@ export async function listTickets(filters = {}, actorId = null, viewAll = false)
     if (filters.OPEN_ONLY === "true") conditions.push(`st.is_closed = 'N'`);
 
     if (!viewAll && actorId) {
-      conditions.push(`t.created_by = :created_by`);
+      const orConditions = [`t.created_by = :created_by`];
       binds.created_by = actorId;
+      if (userType === "OWNER" && refId != null) {
+        orConditions.push(`t.owner_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      } else if (userType === "WORKER" && refId != null) {
+        orConditions.push(`t.assigned_worker_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      } else if (userType === "CONTRACTOR" && refId != null) {
+        orConditions.push(`t.contractor_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      }
+      conditions.push(`(${orConditions.join(" OR ")})`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -204,9 +216,10 @@ export async function listTickets(filters = {}, actorId = null, viewAll = false)
 
 // ─────────────────────────────────────────────
 // GET TICKET DETAIL (header + comments + history + attachments)
-// access: viewAll=false + actorId => only if created_by === actorId
+// access: viewAll=false + actorId => only if created_by === actorId,
+//         or tied to actor via owner_id / assigned_worker_id / contractor_id (by userType)
 // ─────────────────────────────────────────────
-export async function getTicket(ticketId, actorId = null, viewAll = false) {
+export async function getTicket(ticketId, actorId = null, viewAll = false, userType = null, refId = null) {
   const conn = await getConnection();
   try {
     const header = await conn.execute(
@@ -227,8 +240,16 @@ export async function getTicket(ticketId, actorId = null, viewAll = false) {
     if (!header.rows.length) return null;
 
     const ticket = header.rows[0];
-    if (!viewAll && actorId && Number(ticket.CREATED_BY) !== Number(actorId)) {
-      return null;
+    if (!viewAll && actorId) {
+      let allowed = Number(ticket.CREATED_BY) === Number(actorId);
+      if (!allowed && userType === "OWNER" && refId != null) {
+        allowed = Number(ticket.OWNER_ID) === Number(refId);
+      } else if (!allowed && userType === "WORKER" && refId != null) {
+        allowed = Number(ticket.ASSIGNED_WORKER_ID) === Number(refId);
+      } else if (!allowed && userType === "CONTRACTOR" && refId != null) {
+        allowed = Number(ticket.CONTRACTOR_ID) === Number(refId);
+      }
+      if (!allowed) return null;
     }
 
     const comments = await conn.execute(

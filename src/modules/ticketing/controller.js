@@ -50,13 +50,13 @@ export async function ticketHandler(req, res) {
     }
 
     case "listTickets": {
-      const result = await svc.listTickets(req.query, actorId, viewAll);
+      const result = await svc.listTickets(req.query, actorId, viewAll, req.user?.userType ?? null, req.user?.refId ?? null);
       return res.json({ success: true, ...result });
     }
 
     case "getTicket": {
       const ticketId = Number(req.params.id);
-      const data = await svc.getTicket(ticketId, actorId, viewAll);
+      const data = await svc.getTicket(ticketId, actorId, viewAll, req.user?.userType ?? null, req.user?.refId ?? null);
       if (!data) return res.status(404).json({ success: false, message: "Ticket not found." });
       return res.json({ success: true, data });
     }
