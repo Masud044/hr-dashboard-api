@@ -28,7 +28,7 @@ import {
   getInvoiceFileById,
   getTransactionById,
   deleteStagingRow,
-  rematchStagingRow  
+  rematchStagingRow,
 } from "./service.js";
 
 export async function statementHandler(req, res) {
@@ -73,7 +73,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
-        amount: req.query.amount || null,   // ← NEW
+        amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
         category: req.query.category || null,
         categories: req.query.categories || null, // NEW: comma-separated multi-select
@@ -110,7 +110,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
-        amount: req.query.amount || null,   // ← NEW
+        amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
         matchedAddress: req.query.matchedAddress || null,
       };
@@ -162,49 +162,53 @@ export async function statementHandler(req, res) {
       return res.status(200).json({ success: true, data: contractors });
     }
 
-   case "updateRow": {
-  const {
-    stagingId,
-    pId,
-    projectName,
-    contractorId,
-    contractorName,
-    invoiceNo,
-    remarks,
-    category,
-    paymentBy,
-    excludeMargin,          // ← ADD
-  } = req.body;
-  if (!stagingId)
-    return res
-      .status(400)
-      .json({ success: false, message: "stagingId is required." });
-  const result = await updateStagingRow(stagingId, {
-    pId,
-    projectName,
-    contractorId,
-    contractorName,
-    invoiceNo,
-    remarks,
-    category,
-    paymentBy,
-    excludeMargin,          // ← ADD
-  });
-  return res.status(200).json({ success: true, ...result });
-}
+    case "updateRow": {
+      const {
+        stagingId,
+        pId,
+        projectName,
+        contractorId,
+        contractorName,
+        invoiceNo,
+        remarks,
+        category,
+        paymentBy,
+        excludeMargin, // ← ADD
+      } = req.body;
+      if (!stagingId)
+        return res
+          .status(400)
+          .json({ success: false, message: "stagingId is required." });
+      const result = await updateStagingRow(stagingId, {
+        pId,
+        projectName,
+        contractorId,
+        contractorName,
+        invoiceNo,
+        remarks,
+        category,
+        paymentBy,
+        excludeMargin, // ← ADD
+      });
+      return res.status(200).json({ success: true, ...result });
+    }
     case "rematchRow": {
       const { stagingId } = req.params;
       if (!stagingId)
-        return res.status(400).json({ success: false, message: "stagingId is required." });
+        return res
+          .status(400)
+          .json({ success: false, message: "stagingId is required." });
       try {
         const result = await rematchStagingRow(stagingId);
-        return res.status(200).json({ success: true, message: "Row rematched.", ...result });
+        return res
+          .status(200)
+          .json({ success: true, message: "Row rematched.", ...result });
       } catch (err) {
         return res.status(400).json({ success: false, message: err.message });
       }
     }
 
-  case "updateMainRow": {
+     case "updateMainRow": {
   const {
     txnId,
     pId,
@@ -215,24 +219,36 @@ export async function statementHandler(req, res) {
     remarks,
     category,
     paymentBy,
-    excludeMargin,          // ← ADD
+    excludeMargin,
+    txnDate,
+    amount,
+    entryType,
+    description,
   } = req.body;
   if (!txnId)
     return res
       .status(400)
       .json({ success: false, message: "txnId is required." });
-  const result = await updateMainRow(txnId, {
-    pId,
-    projectName,
-    contractorId,
-    contractorName,
-    invoiceNo,
-    remarks,
-    category,
-    paymentBy,
-    excludeMargin,          // ← ADD
-  });
-  return res.status(200).json({ success: true, ...result });
+  try {
+    const result = await updateMainRow(txnId, {
+      pId,
+      projectName,
+      contractorId,
+      contractorName,
+      invoiceNo,
+      remarks,
+      category,
+      paymentBy,
+      excludeMargin,
+      txnDate,
+      amount,
+      entryType,
+      description,
+    });
+    return res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
 }
 
     case "uploadMainInvoice": {
@@ -291,20 +307,20 @@ export async function statementHandler(req, res) {
         .json({ success: true, message: "Invoice file deleted.", ...result });
     }
     case "deleteStagingRow": {
-  const { stagingId } = req.params;
-  if (!stagingId)
-    return res
-      .status(400)
-      .json({ success: false, message: "stagingId is required." });
-  try {
-    const result = await deleteStagingRow(stagingId);
-    return res
-      .status(200)
-      .json({ success: true, message: "Row deleted.", ...result });
-  } catch (err) {
-    return res.status(400).json({ success: false, message: err.message });
-  }
-}
+      const { stagingId } = req.params;
+      if (!stagingId)
+        return res
+          .status(400)
+          .json({ success: false, message: "stagingId is required." });
+      try {
+        const result = await deleteStagingRow(stagingId);
+        return res
+          .status(200)
+          .json({ success: true, message: "Row deleted.", ...result });
+      } catch (err) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+    }
 
     case "getInvoiceFile": {
       const { stagingId } = req.params;
@@ -386,7 +402,7 @@ export async function statementHandler(req, res) {
         invoiceNo: req.query.invoiceNo || null,
         amountMin: req.query.amountMin || null,
         amountMax: req.query.amountMax || null,
-        amount: req.query.amount || null,   // ← NEW
+        amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
         matchedAddress: req.query.matchedAddress || null,
       };
@@ -408,12 +424,10 @@ export async function statementHandler(req, res) {
     case "getInvoices": {
       const { parentType, parentId } = req.params;
       if (!parentType || !parentId)
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "parentType and parentId are required.",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "parentType and parentId are required.",
+        });
       const rows = await getInvoicesForParent(
         parentType.toUpperCase(),
         parentId,
@@ -421,18 +435,7 @@ export async function statementHandler(req, res) {
       return res.status(200).json({ success: true, data: rows });
     }
     case "getTransactionById": {
-  const { parentType, parentId } = req.params;
-  if (!parentType || !parentId)
-    return res.status(400).json({ success: false, message: "parentType and parentId are required." });
-  const row = await getTransactionById(parentType, parentId);
-  if (!row)
-    return res.status(404).json({ success: false, message: "Transaction not found." });
-  return res.status(200).json({ success: true, data: row });
-}
-
-    case "addInvoice": {
       const { parentType, parentId } = req.params;
-      const { invoiceNo } = req.body;
       if (!parentType || !parentId)
         return res
           .status(400)
@@ -440,6 +443,22 @@ export async function statementHandler(req, res) {
             success: false,
             message: "parentType and parentId are required.",
           });
+      const row = await getTransactionById(parentType, parentId);
+      if (!row)
+        return res
+          .status(404)
+          .json({ success: false, message: "Transaction not found." });
+      return res.status(200).json({ success: true, data: row });
+    }
+
+    case "addInvoice": {
+      const { parentType, parentId } = req.params;
+      const { invoiceNo } = req.body;
+      if (!parentType || !parentId)
+        return res.status(400).json({
+          success: false,
+          message: "parentType and parentId are required.",
+        });
       if (!req.files || req.files.length === 0)
         return res
           .status(400)
@@ -459,15 +478,21 @@ export async function statementHandler(req, res) {
     }
 
     case "addFileToInvoice": {
-  const { invoiceId } = req.params;
-  if (!invoiceId)
-    return res.status(400).json({ success: false, message: "invoiceId is required." });
-  if (!req.file)
-    return res.status(400).json({ success: false, message: "File is required." });
-  const userId = req.user?.id || req.body.userId || null;
-  const result = await addFileToInvoice(invoiceId, req.file, userId);
-  return res.status(200).json({ success: true, message: "File added.", ...result });
-}
+      const { invoiceId } = req.params;
+      if (!invoiceId)
+        return res
+          .status(400)
+          .json({ success: false, message: "invoiceId is required." });
+      if (!req.file)
+        return res
+          .status(400)
+          .json({ success: false, message: "File is required." });
+      const userId = req.user?.id || req.body.userId || null;
+      const result = await addFileToInvoice(invoiceId, req.file, userId);
+      return res
+        .status(200)
+        .json({ success: true, message: "File added.", ...result });
+    }
 
     case "deleteInvoiceFileRow": {
       const { fileId } = req.params;
