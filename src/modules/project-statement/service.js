@@ -977,6 +977,48 @@ export async function getAllContractors() {
 }
 
 // ── Approved Records (PM_STATEMENT_MAIN) inline edit — mirrors updateStagingRow but targets TXN_ID ──
+// export async function updateMainRow(txnId, updates) {
+//   const fields = [];
+//   const binds = { txnId };
+
+//   if (updates.pId !== undefined) {
+//     fields.push("P_ID = :pId", "PROJECT_NAME = :projectName");
+//     binds.pId = updates.pId || null;
+//     binds.projectName = updates.projectName || null;
+//   }
+//   if (updates.contractorId !== undefined) {
+//     fields.push(
+//       "CONTRACTOR_ID = :contractorId",
+//       "CONTRACTOR_NAME = :contractorName",
+//     );
+//     binds.contractorId = updates.contractorId || null;
+//     binds.contractorName = updates.contractorName || null;
+//   }
+//   if (updates.invoiceNo !== undefined) {
+//     fields.push("INVOICE_NO = :invoiceNo");
+//     binds.invoiceNo = updates.invoiceNo || null;
+//   }
+//   if (updates.remarks !== undefined) {
+//     fields.push("REMARKS = :remarks");
+//     binds.remarks = updates.remarks || null;
+//   }
+//   if (updates.category !== undefined) {
+//     fields.push("CATEGORY = :category");
+//     binds.category = updates.category || null;
+//   }
+//   if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  
+//   if (updates.excludeMargin !== undefined) { fields.push('EXCLUDE_MARGIN = :excludeMargin'); binds.excludeMargin = updates.excludeMargin || 'N'; }  // ← ADD
+
+//   if (fields.length === 0) return { updated: false };
+
+//   await poolExecute(
+//     `UPDATE PM.PM_STATEMENT_MAIN SET ${fields.join(", ")} WHERE TXN_ID = :txnId`,
+//     binds,
+//     { autoCommit: true },
+//   );
+//   return { updated: true };
+// }
+
 export async function updateMainRow(txnId, updates) {
   const fields = [];
   const binds = { txnId };
@@ -1006,8 +1048,48 @@ export async function updateMainRow(txnId, updates) {
     fields.push("CATEGORY = :category");
     binds.category = updates.category || null;
   }
-  if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }  
-  if (updates.excludeMargin !== undefined) { fields.push('EXCLUDE_MARGIN = :excludeMargin'); binds.excludeMargin = updates.excludeMargin || 'N'; }  // ← ADD
+  if (updates.paymentBy !== undefined) { fields.push('PAYMENT_BY = :paymentBy'); binds.paymentBy = updates.paymentBy || null; }
+  if (updates.excludeMargin !== undefined) { fields.push('EXCLUDE_MARGIN = :excludeMargin'); binds.excludeMargin = updates.excludeMargin || 'N'; }
+
+  // ── NEW: core-field edits (date/amount/entryType/description) — NON_BANKING rows only ──
+  const wantsCoreEdit =
+    updates.txnDate !== undefined ||
+    updates.amount !== undefined ||
+    updates.entryType !== undefined ||
+    updates.description !== undefined;
+
+  if (wantsCoreEdit) {
+    const check = await poolExecute(
+      `SELECT SOURCE_TYPE FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :txnId`,
+      { txnId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const row = check.rows?.[0];
+    if (!row) throw new Error("Transaction not found.");
+    if (row.SOURCE_TYPE !== "NON_BANKING") {
+      throw new Error("Only non-banking transactions can have these fields edited.");
+    }
+
+    if (updates.txnDate !== undefined) {
+      fields.push("TXN_DATE = :txnDate");
+      binds.txnDate = updates.txnDate ? new Date(updates.txnDate) : null;
+    }
+    if (updates.description !== undefined) {
+      fields.push("DESCRIPTION = :description");
+      binds.description = updates.description || "";
+    }
+    if (updates.amount !== undefined && updates.entryType !== undefined) {
+      if (!["DEBIT", "CREDIT"].includes(updates.entryType)) {
+        throw new Error("entryType must be DEBIT or CREDIT.");
+      }
+      const rawAmount = Math.abs(parseFloat(String(updates.amount || "0").replace(/,/g, "")) || 0);
+      const storedAmount = updates.entryType === "DEBIT" ? rawAmount : -rawAmount;
+      fields.push("AMOUNT = :amount", "DEBIT = :debit", "CREDIT = :credit");
+      binds.amount = storedAmount;
+      binds.debit = updates.entryType === "DEBIT" ? rawAmount : null;
+      binds.credit = updates.entryType === "CREDIT" ? rawAmount : null;
+    }
+  }
 
   if (fields.length === 0) return { updated: false };
 
@@ -2202,9 +2284,11 @@ export async function getTransactionById(parentType, parentId) {
     return result.rows?.[0] || null;
   }
 
-  if (type === "MAIN") {
+    if (type === "MAIN") {
     const result = await poolExecute(
-      `SELECT TXN_ID, TXN_DATE, AMOUNT, DESCRIPTION
+      `SELECT TXN_ID, TXN_DATE, AMOUNT, DEBIT, CREDIT, DESCRIPTION, SOURCE_TYPE,
+              P_ID, PROJECT_NAME, CONTRACTOR_ID, CONTRACTOR_NAME, INVOICE_NO,
+              REMARKS, PAYMENT_BY, EXCLUDE_MARGIN, CATEGORY
        FROM PM.PM_STATEMENT_MAIN WHERE TXN_ID = :id`,
       { id: parentId },
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
