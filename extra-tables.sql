@@ -176,3 +176,34 @@ BEGIN
   :new.TODO_ID := PM.TODO_SEQ.NEXTVAL;
 END PM_TODO_TRG;
 /
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------
+-- NOTIFICATIONS (generic, reusable across all modules)
+--------------------------------------------------------------------------
+
+CREATE TABLE notifications (
+    notification_id   NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id            NUMBER        NOT NULL,           -- PM.USERS.ID — recipient
+    type               VARCHAR2(40)  NOT NULL,           -- e.g. 'TICKET_COMMENT', 'TICKET_ASSIGNED', 'STATEMENT_APPROVED'
+    title              VARCHAR2(200),
+    message            VARCHAR2(500),
+    entity_type        VARCHAR2(30),                      -- 'TICKET', 'PROJECT', 'CONTRACTOR', 'STATEMENT', 'INVOICE', etc.
+    entity_id          NUMBER,                             -- id within that entity_type's table
+    link               VARCHAR2(255),                      -- frontend route, e.g. /dashboard/tickets/5
+    is_read            CHAR(1)       DEFAULT 'N' NOT NULL CHECK (is_read IN ('Y','N')),
+    created_at         TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_notifications_user       ON notifications(user_id);
+CREATE INDEX idx_notifications_user_read  ON notifications(user_id, is_read);
+CREATE INDEX idx_notifications_entity     ON notifications(entity_type, entity_id);
+CREATE INDEX idx_notifications_created    ON notifications(created_at);

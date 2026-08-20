@@ -36,6 +36,8 @@ import workerAttendanceRoutes from "./modules/worker-attendance/route.js";
 import workerAttendanceReportRoutes from "./modules/worker-attendance/report.route.js";
 
 import ticketingRoutes from "./modules/ticketing/route.js";
+import notificationsRoutes from "./modules/notifications/notifications.routes.js";
+
 
 // test todo
 import todoRoutes from "./modules/todo/route.js";
@@ -114,6 +116,7 @@ app.use("/api/worker-attendance", workerAttendanceRoutes);
 app.use("/api/worker-attendance", workerAttendanceReportRoutes);
 
 app.use("/api/ticketing", ticketingRoutes);
+app.use("/api/notifications", notificationsRoutes);
 
 // test todo
 app.use("/api/todo", todoRoutes);
