@@ -2,6 +2,7 @@
 import oracledb from "oracledb";
 import { getConnection } from "../../config/db.js";
 import { AppError } from "../../utils/appError.js";
+import { createNotification } from "../notifications/notifications.service.js";
 
 // ─────────────────────────────────────────────
 // LOOKUPS
@@ -118,6 +119,60 @@ export async function createTicket(data, actorId) {
     );
 
     await conn.commit();
+
+    // ── Notifications (fire-and-forget — never fail ticket creation on notification errors)
+    try {
+      const ticketId = result.outBinds.new_id[0];
+      const assignedWorkerRef =
+        data.ASSIGNED_WORKER_ID != null ? Number(data.ASSIGNED_WORKER_ID) : null;
+
+      // Resolve ref-table IDs (owner/worker/contractor) to real USERS.ID in one query.
+      const refMap = new Map();
+      const refRes = await conn.execute(
+        `SELECT ID, USER_TYPE, REF_ID
+         FROM USERS
+         WHERE (USER_TYPE = 'OWNER'      AND REF_ID = :owner_id)
+            OR (USER_TYPE = 'WORKER'     AND REF_ID = :assigned_worker_id)
+            OR (USER_TYPE = 'CONTRACTOR' AND REF_ID = :contractor_id)`,
+        {
+          owner_id: ownerId,
+          assigned_worker_id: assignedWorkerRef,
+          contractor_id: contractorId,
+        },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      for (const row of refRes.rows) {
+        refMap.set(`${row.USER_TYPE}:${row.REF_ID}`, row.ID);
+      }
+
+      // Silently skip refs with no matching USERS row (no login account); never notify the creator.
+      const recipients = new Set(
+        [
+          refMap.get(`OWNER:${ownerId}`),
+          refMap.get(`WORKER:${assignedWorkerRef}`),
+          refMap.get(`CONTRACTOR:${contractorId}`),
+        ].filter((id) => id != null && Number(id) !== Number(actorId))
+      );
+
+      for (const recipientId of recipients) {
+        try {
+          await createNotification({
+            userId: recipientId,
+            type: "TICKET_CREATED",
+            title: "New ticket created",
+            message: data.SUBJECT,
+            entityType: "TICKET",
+            entityId: ticketId,
+            link: `/dashboard/tickets/${ticketId}`,
+          });
+        } catch (notifErr) {
+          console.error(`Failed to create notification for user ${recipientId}:`, notifErr);
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to notify ticket recipients:", notifErr);
+    }
+
     return {
       ticket_id: result.outBinds.new_id[0],
       ticket_number: result.outBinds.new_number[0],
@@ -320,6 +375,45 @@ export async function assignWorker(ticketId, workerId, actorId) {
     }
 
     await conn.commit();
+
+    // ── Notifications (fire-and-forget — never fail the assignment on notification errors)
+    try {
+      if (workerId != null && Number(oldWorkerId ?? -1) !== Number(workerId ?? -1)) {
+        const subjectRow = await conn.execute(
+          `SELECT subject FROM tickets WHERE ticket_id = :id`,
+          { id: ticketId },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        const subject = subjectRow.rows[0]?.SUBJECT ?? "Ticket";
+
+        // Resolve worker ref-table ID to real USERS.ID; skip if no login account.
+        const userRow = await conn.execute(
+          `SELECT ID FROM USERS WHERE USER_TYPE = 'WORKER' AND REF_ID = :worker_id`,
+          { worker_id: Number(workerId) },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        const recipientId = userRow.rows[0]?.ID ?? null;
+
+        if (recipientId != null && Number(recipientId) !== Number(actorId)) {
+          try {
+            await createNotification({
+              userId: recipientId,
+              type: "TICKET_ASSIGNED",
+              title: "You were assigned a ticket",
+              message: subject,
+              entityType: "TICKET",
+              entityId: ticketId,
+              link: `/dashboard/tickets/${ticketId}`,
+            });
+          } catch (notifErr) {
+            console.error(`Failed to create notification for user ${recipientId}:`, notifErr);
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to notify assigned worker:", notifErr);
+    }
+
     return { success: true };
   } catch (err) {
     await conn.rollback();
@@ -416,6 +510,70 @@ export async function addComment(ticketId, data, actorId) {
       throw new AppError("Ticket not found.", 404);
     }
     await conn.commit();
+
+    // ── Notifications (fire-and-forget — never fail the comment on notification errors)
+    try {
+      const ticketRow = await conn.execute(
+        `SELECT created_by, owner_id, assigned_worker_id, contractor_id, subject
+         FROM tickets WHERE ticket_id = :id`,
+        { id: ticketId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      const ticket = ticketRow.rows[0];
+      if (ticket) {
+        // Resolve ref-table IDs (owner/worker/contractor) to real USERS.ID in one query.
+        // created_by is already a USERS.ID and needs no resolution.
+        const refMap = new Map();
+        const refRes = await conn.execute(
+          `SELECT ID, USER_TYPE, REF_ID
+           FROM USERS
+           WHERE (USER_TYPE = 'OWNER'      AND REF_ID = :owner_id)
+              OR (USER_TYPE = 'WORKER'     AND REF_ID = :assigned_worker_id)
+              OR (USER_TYPE = 'CONTRACTOR' AND REF_ID = :contractor_id)`,
+          {
+            owner_id: ticket.OWNER_ID ?? null,
+            assigned_worker_id: ticket.ASSIGNED_WORKER_ID ?? null,
+            contractor_id: ticket.CONTRACTOR_ID ?? null,
+          },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        for (const row of refRes.rows) {
+          refMap.set(`${row.USER_TYPE}:${row.REF_ID}`, row.ID);
+        }
+
+        // Silently skip refs with no matching USERS row (no login account).
+        const recipients = new Set(
+          [
+            ticket.CREATED_BY,
+            refMap.get(`OWNER:${ticket.OWNER_ID}`),
+            refMap.get(`WORKER:${ticket.ASSIGNED_WORKER_ID}`),
+            refMap.get(`CONTRACTOR:${ticket.CONTRACTOR_ID}`),
+          ].filter((id) => id != null && Number(id) !== Number(actorId))
+        );
+        const message =
+          ticket.SUBJECT ||
+          String(data.COMMENT_TEXT ?? "").slice(0, 120) ||
+          "New comment on ticket";
+        for (const recipientId of recipients) {
+          try {
+            await createNotification({
+              userId: recipientId,
+              type: "TICKET_COMMENT",
+              title: "New comment on ticket",
+              message,
+              entityType: "TICKET",
+              entityId: ticketId,
+              link: `/dashboard/tickets/${ticketId}`,
+            });
+          } catch (notifErr) {
+            console.error(`Failed to create notification for user ${recipientId}:`, notifErr);
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to notify ticket recipients:", notifErr);
+    }
+
     return { success: true };
   } catch (err) {
     await conn.rollback();
