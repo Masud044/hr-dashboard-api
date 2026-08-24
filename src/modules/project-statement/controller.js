@@ -75,6 +75,7 @@ export async function statementHandler(req, res) {
         amountMax: req.query.amountMax || null,
         amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
+        remarks: req.query.remarks || null,
         category: req.query.category || null,
         categories: req.query.categories || null, // NEW: comma-separated multi-select
         matchedAddress: req.query.matchedAddress || null,
@@ -112,6 +113,7 @@ export async function statementHandler(req, res) {
         amountMax: req.query.amountMax || null,
         amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
+        remarks: req.query.remarks || null,
         matchedAddress: req.query.matchedAddress || null,
       };
       const stats = await getStagingStats(filters);
@@ -404,6 +406,7 @@ export async function statementHandler(req, res) {
         amountMax: req.query.amountMax || null,
         amount: req.query.amount || null, // ← NEW
         description: req.query.description || null,
+        remarks: req.query.remarks || null,
         matchedAddress: req.query.matchedAddress || null,
       };
       const pagination = {
