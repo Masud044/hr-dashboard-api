@@ -882,6 +882,10 @@ function buildStagingWhere(filters = {}) {
     where += " AND UPPER(s.DESCRIPTION) LIKE UPPER(:description)";
     binds.description = `%${filters.description}%`;
   }
+    if (filters.remarks) {
+    where += " AND UPPER(s.REMARKS) LIKE UPPER(:remarks)";
+    binds.remarks = `%${filters.remarks}%`;
+  }
   if (filters.matchedAddress) {
     where += " AND UPPER(s.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";
     binds.matchedAddress = `%${filters.matchedAddress}%`;
@@ -1817,6 +1821,10 @@ function buildMainWhere(filters = {}) {
   if (filters.description) {
     where += " AND UPPER(m.DESCRIPTION) LIKE UPPER(:description)";
     binds.description = `%${filters.description}%`;
+  }
+    if (filters.remarks) {
+    where += " AND UPPER(m.REMARKS) LIKE UPPER(:remarks)";
+    binds.remarks = `%${filters.remarks}%`;
   }
   if (filters.matchedAddress) {
     where += " AND UPPER(m.MATCHED_ADDRESS) LIKE UPPER(:matchedAddress)";

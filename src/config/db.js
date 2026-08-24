@@ -46,7 +46,10 @@ export async function initDb() {
     poolMin: Number(process.env.DB_POOL_MIN || 1),
     poolMax: Number(process.env.DB_POOL_MAX || 10),
     poolIncrement: Number(process.env.DB_POOL_INCREMENT || 1),
-    stmtCacheSize: 30
+    stmtCacheSize: 30,
+    sessionCallback: (connection, requestedTag, callbackFn) => {
+      connection.execute(`ALTER SESSION SET TIME_ZONE = 'UTC'`, callbackFn);
+    }
   });
 
   let conn;
