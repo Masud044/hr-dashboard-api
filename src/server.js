@@ -1,4 +1,5 @@
 // src\server.js
+process.env.TZ = 'UTC';
 import dotenv from "dotenv";
 dotenv.config(); 
 import app from "./app.js";

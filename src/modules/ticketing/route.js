@@ -45,8 +45,20 @@ router.put("/:id/status",
   asyncHandler((req, res) => { req.params.action = "updateStatus"; return ticketHandler(req, res); })
 );
 
+router.put("/:id",
+  asyncHandler((req, res) => { req.params.action = "updateTicket"; return ticketHandler(req, res); })
+);
+
 router.post("/:id/comments",
   asyncHandler((req, res) => { req.params.action = "addComment"; return ticketHandler(req, res); })
+);
+
+router.put("/comments/:commentId",
+  asyncHandler((req, res) => { req.params.action = "updateComment"; return ticketHandler(req, res); })
+);
+
+router.delete("/comments/:commentId",
+  asyncHandler((req, res) => { req.params.action = "deleteComment"; return ticketHandler(req, res); })
 );
 
 router.post("/:id/attachments",
@@ -56,6 +68,14 @@ router.post("/:id/attachments",
 
 router.post("/canned-responses",
   asyncHandler((req, res) => { req.params.action = "createCannedResponse"; return ticketHandler(req, res); })
+);
+
+router.put("/canned-responses/:id",
+  asyncHandler((req, res) => { req.params.action = "updateCannedResponse"; return ticketHandler(req, res); })
+);
+
+router.delete("/canned-responses/:id",
+  asyncHandler((req, res) => { req.params.action = "deleteCannedResponse"; return ticketHandler(req, res); })
 );
 
 export default router;

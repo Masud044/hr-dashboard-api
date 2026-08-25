@@ -204,6 +204,10 @@ export async function listTickets(filters = {}, actorId = null, viewAll = false,
     if (filters.PRIORITY_ID)    { conditions.push(`t.priority_id = :priority_id`);    binds.priority_id = Number(filters.PRIORITY_ID); }
     if (filters.CATEGORY_ID)    { conditions.push(`t.category_id = :category_id`);    binds.category_id = Number(filters.CATEGORY_ID); }
     if (filters.OPEN_ONLY === "true") conditions.push(`st.is_closed = 'N'`);
+    if (filters.SEARCH && String(filters.SEARCH).trim()) {
+      conditions.push(`(UPPER(t.ticket_number) LIKE UPPER(:search) OR UPPER(t.subject) LIKE UPPER(:search))`);
+      binds.search = `%${String(filters.SEARCH).trim()}%`;
+    }
 
     if (!viewAll && actorId) {
       const orConditions = [`t.created_by = :created_by`];
@@ -308,7 +312,7 @@ export async function getTicket(ticketId, actorId = null, viewAll = false, userT
     }
 
     const comments = await conn.execute(
-      `SELECT * FROM ticket_comments WHERE ticket_id = :id ORDER BY created_at ASC`,
+      `SELECT * FROM ticket_comments WHERE ticket_id = :id AND is_deleted = 'N' ORDER BY created_at ASC`,
       { id: ticketId },
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
@@ -485,6 +489,192 @@ export async function updateStatus(ticketId, statusName, actorId) {
 }
 
 // ─────────────────────────────────────────────
+// UPDATE TICKET (subject / description / priority / due date, writes ticket_history)
+// ─────────────────────────────────────────────
+export async function updateTicket(ticketId, data, actorId) {
+  const conn = await getConnection();
+  try {
+    const curRow = await conn.execute(
+      `SELECT
+         t.subject, t.description, t.priority_id, t.due_date,
+         st.status_name
+       FROM tickets t
+       JOIN ticket_statuses st ON st.status_id = t.status_id
+       WHERE t.ticket_id = :id`,
+      { id: ticketId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!curRow.rows.length) throw new AppError("Ticket not found.", 404);
+    const current = curRow.rows[0];
+    if (current.STATUS_NAME === "CLOSED" || current.STATUS_NAME === "CANCELLED") {
+      throw new AppError("Closed or cancelled tickets cannot be edited.", 400);
+    }
+
+    // Partial update — build SET clauses only for the fields provided.
+    const setClauses = [];
+    const binds = { id: ticketId };
+
+    let newPriorityId = null;
+    let newDueDate = null;
+
+    if (data.SUBJECT != null) {
+      setClauses.push(`subject = :subject`);
+      binds.subject = data.SUBJECT;
+    }
+    if (data.DESCRIPTION != null) {
+      setClauses.push(`description = :description`);
+      binds.description = data.DESCRIPTION;
+    }
+    if (data.PRIORITY_ID != null) {
+      newPriorityId = Number(data.PRIORITY_ID);
+
+      // No FK constraints in this DB — validate referential targets explicitly.
+      const prioRow = await conn.execute(
+        `SELECT priority_id FROM ticket_priorities WHERE priority_id = :id`,
+        { id: newPriorityId },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      if (!prioRow.rows.length) {
+        throw new AppError(`Invalid priority_id ${newPriorityId}.`, 400);
+      }
+
+      setClauses.push(`priority_id = :priority_id`);
+      binds.priority_id = newPriorityId;
+    }
+    if (data.DUE_DATE != null) {
+      newDueDate = new Date(data.DUE_DATE);
+      setClauses.push(`due_date = :due_date`);
+      binds.due_date = newDueDate;
+    }
+
+    if (!setClauses.length) {
+      throw new AppError("At least one field to update is required.", 400);
+    }
+
+    const result = await conn.execute(
+      `UPDATE tickets SET ${setClauses.join(", ")} WHERE ticket_id = :id`,
+      binds,
+      { autoCommit: false }
+    );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Ticket not found.", 404);
+    }
+
+    const oldPriorityId = current.PRIORITY_ID;
+    const oldDueDate = current.DUE_DATE;
+    const priorityChanged =
+      newPriorityId != null && Number(oldPriorityId ?? -1) !== Number(newPriorityId);
+    const dueDateChanged =
+      newDueDate != null &&
+      (oldDueDate == null || new Date(oldDueDate).getTime() !== newDueDate.getTime());
+
+    if (priorityChanged) {
+      await conn.execute(
+        `INSERT INTO ticket_history
+          (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+         VALUES
+          (:ticket_id, 'PRIORITY', :old_value, :new_value, 'USER', :changed_by_id)`,
+        {
+          ticket_id: ticketId,
+          old_value: oldPriorityId != null ? String(oldPriorityId) : null,
+          new_value: String(newPriorityId),
+          changed_by_id: actorId ?? null,
+        },
+        { autoCommit: false }
+      );
+    }
+
+    if (dueDateChanged) {
+      await conn.execute(
+        `INSERT INTO ticket_history
+          (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+         VALUES
+          (:ticket_id, 'DUE_DATE', :old_value, :new_value, 'USER', :changed_by_id)`,
+        {
+          ticket_id: ticketId,
+          old_value: oldDueDate != null ? new Date(oldDueDate).toISOString() : null,
+          new_value: newDueDate.toISOString(),
+          changed_by_id: actorId ?? null,
+        },
+        { autoCommit: false }
+      );
+    }
+
+    await conn.commit();
+
+    // ── Notifications (fire-and-forget — never fail the update on notification errors)
+    try {
+      if (priorityChanged || dueDateChanged) {
+        const ticketRow = await conn.execute(
+          `SELECT created_by, owner_id, assigned_worker_id, contractor_id, subject
+           FROM tickets WHERE ticket_id = :id`,
+          { id: ticketId },
+          { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        const ticket = ticketRow.rows[0];
+        if (ticket) {
+          // Resolve ref-table IDs (owner/worker/contractor) to real USERS.ID in one query.
+          // created_by is already a USERS.ID and needs no resolution.
+          const refMap = new Map();
+          const refRes = await conn.execute(
+            `SELECT ID, USER_TYPE, REF_ID
+             FROM USERS
+             WHERE (USER_TYPE = 'OWNER'      AND REF_ID = :owner_id)
+                OR (USER_TYPE = 'WORKER'     AND REF_ID = :assigned_worker_id)
+                OR (USER_TYPE = 'CONTRACTOR' AND REF_ID = :contractor_id)`,
+            {
+              owner_id: ticket.OWNER_ID ?? null,
+              assigned_worker_id: ticket.ASSIGNED_WORKER_ID ?? null,
+              contractor_id: ticket.CONTRACTOR_ID ?? null,
+            },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+          );
+          for (const row of refRes.rows) {
+            refMap.set(`${row.USER_TYPE}:${row.REF_ID}`, row.ID);
+          }
+
+          // Silently skip refs with no matching USERS row (no login account).
+          const recipients = new Set(
+            [
+              ticket.CREATED_BY,
+              refMap.get(`OWNER:${ticket.OWNER_ID}`),
+              refMap.get(`WORKER:${ticket.ASSIGNED_WORKER_ID}`),
+              refMap.get(`CONTRACTOR:${ticket.CONTRACTOR_ID}`),
+            ].filter((id) => id != null && Number(id) !== Number(actorId))
+          );
+
+          for (const recipientId of recipients) {
+            try {
+              await createNotification({
+                userId: recipientId,
+                type: "TICKET_UPDATED",
+                title: "Ticket updated",
+                message: ticket.SUBJECT,
+                entityType: "TICKET",
+                entityId: ticketId,
+                link: `/dashboard/tickets/${ticketId}`,
+              });
+            } catch (notifErr) {
+              console.error(`Failed to create notification for user ${recipientId}:`, notifErr);
+            }
+          }
+        }
+      }
+    } catch (notifErr) {
+      console.error("Failed to notify ticket recipients:", notifErr);
+    }
+
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
 // ADD COMMENT
 // ─────────────────────────────────────────────
 export async function addComment(ticketId, data, actorId) {
@@ -584,6 +774,80 @@ export async function addComment(ticketId, data, actorId) {
 }
 
 // ─────────────────────────────────────────────
+// UPDATE COMMENT (author-only)
+// ─────────────────────────────────────────────
+export async function updateComment(commentId, commentText, actorId) {
+  const conn = await getConnection();
+  try {
+    const curRow = await conn.execute(
+      `SELECT ticket_id, author_id, is_deleted FROM ticket_comments WHERE comment_id = :id`,
+      { id: commentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!curRow.rows.length) throw new AppError("Comment not found.", 404);
+    const comment = curRow.rows[0];
+    if (Number(comment.AUTHOR_ID) !== Number(actorId)) {
+      throw new AppError("You can only edit your own comments.", 403);
+    }
+    if (comment.IS_DELETED === "Y") {
+      throw new AppError("Cannot edit a deleted comment.", 400);
+    }
+
+    await conn.execute(
+      `UPDATE ticket_comments
+       SET comment_text = :text, updated_at = SYSTIMESTAMP
+       WHERE comment_id = :id`,
+      { text: commentText, id: commentId },
+      { autoCommit: false }
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// DELETE COMMENT (author-only, soft-delete)
+// ─────────────────────────────────────────────
+export async function deleteComment(commentId, actorId) {
+  const conn = await getConnection();
+  try {
+    const curRow = await conn.execute(
+      `SELECT ticket_id, author_id, is_deleted FROM ticket_comments WHERE comment_id = :id`,
+      { id: commentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!curRow.rows.length) throw new AppError("Comment not found.", 404);
+    const comment = curRow.rows[0];
+    if (Number(comment.AUTHOR_ID) !== Number(actorId)) {
+      throw new AppError("You can only delete your own comments.", 403);
+    }
+    if (comment.IS_DELETED === "Y") {
+      throw new AppError("Cannot delete an already deleted comment.", 400);
+    }
+
+    await conn.execute(
+      `UPDATE ticket_comments SET is_deleted = 'Y' WHERE comment_id = :id`,
+      { id: commentId },
+      { autoCommit: false }
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
 // ATTACHMENTS
 // ─────────────────────────────────────────────
 export async function addAttachment(ticketId, fileMeta, uploadedBy) {
@@ -620,7 +884,11 @@ export async function listCannedResponses() {
   const conn = await getConnection();
   try {
     const result = await conn.execute(
-      `SELECT * FROM canned_responses WHERE active = 'Y' ORDER BY title`,
+      `SELECT cr.*, cat.category_name
+       FROM canned_responses cr
+       LEFT JOIN ticket_categories cat ON cat.category_id = cr.category_id
+       WHERE cr.active = 'Y'
+       ORDER BY cr.title`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
@@ -647,6 +915,75 @@ export async function createCannedResponse(data, actorId) {
       { autoCommit: true }
     );
     return result.outBinds.new_id[0];
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// UPDATE CANNED RESPONSE (title / body / category, partial)
+// ─────────────────────────────────────────────
+export async function updateCannedResponse(responseId, data, actorId) {
+  const conn = await getConnection();
+  try {
+    // Partial update — build SET clauses only for the fields provided.
+    const setClauses = [];
+    const binds = { id: responseId };
+
+    if (data.TITLE != null) {
+      setClauses.push(`title = :title`);
+      binds.title = data.TITLE;
+    }
+    if (data.BODY != null) {
+      setClauses.push(`body = :body`);
+      binds.body = data.BODY;
+    }
+    if (data.CATEGORY_ID != null) {
+      setClauses.push(`category_id = :category_id`);
+      binds.category_id = Number(data.CATEGORY_ID);
+    }
+
+    if (!setClauses.length) {
+      throw new AppError("At least one field to update is required.", 400);
+    }
+
+    const result = await conn.execute(
+      `UPDATE canned_responses SET ${setClauses.join(", ")}
+       WHERE response_id = :id AND active = 'Y'`,
+      binds,
+      { autoCommit: false }
+    );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Canned response not found.", 404);
+    }
+
+    await conn.commit();
+    return result.rowsAffected;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// DELETE CANNED RESPONSE (soft-delete)
+// ─────────────────────────────────────────────
+export async function deleteCannedResponse(responseId) {
+  const conn = await getConnection();
+  try {
+    const result = await conn.execute(
+      `UPDATE canned_responses SET active = 'N'
+       WHERE response_id = :id AND active = 'Y'`,
+      { id: responseId },
+      { autoCommit: true }
+    );
+    if (!result.rowsAffected) {
+      throw new AppError("Canned response not found.", 404);
+    }
+    return result.rowsAffected;
   } finally {
     await conn.close();
   }
