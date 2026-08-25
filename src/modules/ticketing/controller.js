@@ -80,6 +80,24 @@ export async function ticketHandler(req, res) {
       return res.json({ success: true, message: "Status updated." });
     }
 
+    case "updateTicket": {
+      const ticketId = Number(req.params.id);
+      const b = req.body ?? {};
+      if (
+        b.SUBJECT === undefined &&
+        b.DESCRIPTION === undefined &&
+        b.PRIORITY_ID === undefined &&
+        b.DUE_DATE === undefined
+      ) {
+        return res.status(400).json({ success: false, message: "At least one field to update is required." });
+      }
+      if (b.SUBJECT !== undefined && !String(b.SUBJECT).trim()) {
+        return res.status(400).json({ success: false, message: "SUBJECT cannot be empty." });
+      }
+      await svc.updateTicket(ticketId, b, actorId);
+      return res.json({ success: true, message: "Ticket updated." });
+    }
+
     // ── COMMENTS ─────────────────────────────
     case "addComment": {
       const ticketId = Number(req.params.id);
@@ -92,6 +110,21 @@ export async function ticketHandler(req, res) {
       }
       await svc.addComment(ticketId, b, actorId);
       return res.status(201).json({ success: true, message: "Comment added." });
+    }
+
+    case "updateComment": {
+      const commentId = Number(req.params.commentId);
+      if (!req.body?.COMMENT_TEXT) {
+        return res.status(400).json({ success: false, message: "COMMENT_TEXT is required." });
+      }
+      await svc.updateComment(commentId, req.body.COMMENT_TEXT, actorId);
+      return res.json({ success: true, message: "Comment updated." });
+    }
+
+    case "deleteComment": {
+      const commentId = Number(req.params.commentId);
+      await svc.deleteComment(commentId, actorId);
+      return res.json({ success: true, message: "Comment deleted." });
     }
 
     // ── ATTACHMENTS ──────────────────────────
@@ -132,6 +165,28 @@ export async function ticketHandler(req, res) {
       }
       const id = await svc.createCannedResponse(req.body, actorId);
       return res.status(201).json({ success: true, message: "Canned response created.", response_id: id });
+    }
+
+    case "updateCannedResponse": {
+      const responseId = Number(req.params.id);
+      const b = req.body ?? {};
+      if (b.TITLE === undefined && b.BODY === undefined && b.CATEGORY_ID === undefined) {
+        return res.status(400).json({ success: false, message: "At least one field to update is required." });
+      }
+      if (
+        (b.TITLE !== undefined && !String(b.TITLE).trim()) ||
+        (b.BODY !== undefined && !String(b.BODY).trim())
+      ) {
+        return res.status(400).json({ success: false, message: "TITLE and BODY cannot be empty." });
+      }
+      await svc.updateCannedResponse(responseId, b, actorId);
+      return res.json({ success: true, message: "Canned response updated." });
+    }
+
+    case "deleteCannedResponse": {
+      const responseId = Number(req.params.id);
+      await svc.deleteCannedResponse(responseId);
+      return res.json({ success: true, message: "Canned response deleted." });
     }
 
     default:

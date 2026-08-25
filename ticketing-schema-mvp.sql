@@ -97,7 +97,9 @@ CREATE TABLE ticket_comments (
     comment_text   CLOB          NOT NULL,
     is_internal    CHAR(1)       DEFAULT 'N' NOT NULL CHECK (is_internal IN ('Y','N')),
     canned_response_id NUMBER,
-    created_at     TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL
+    is_deleted     CHAR(1) DEFAULT 'N' NOT NULL CHECK (is_deleted IN ('Y','N')),
+    created_at     TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_at     TIMESTAMP
 );
 
 CREATE INDEX idx_comments_ticket ON ticket_comments(ticket_id);
@@ -186,6 +188,7 @@ INSERT INTO ticket_statuses (status_name, is_closed, sort_order) VALUES ('OPEN',
 INSERT INTO ticket_statuses (status_name, is_closed, sort_order) VALUES ('IN_REVIEW', 'N', 2);
 INSERT INTO ticket_statuses (status_name, is_closed, sort_order) VALUES ('ACKNOWLEDGED', 'N', 3);
 INSERT INTO ticket_statuses (status_name, is_closed, sort_order) VALUES ('CLOSED', 'Y', 4);
+INSERT INTO ticket_statuses (status_name, is_closed, sort_order) VALUES ('CANCELLED', 'Y', 5);
 
 -- Priorities — plain field now, no SLA hours
 INSERT INTO ticket_priorities (priority_name, sort_order) VALUES ('LOW', 1);
