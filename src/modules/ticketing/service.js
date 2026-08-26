@@ -339,6 +339,61 @@ export async function getTicket(ticketId, actorId = null, viewAll = false, userT
 }
 
 // ─────────────────────────────────────────────
+// TICKET SUMMARY / STATS (dashboard counts)
+// access: viewAll=false + actorId => only tickets created by actorId,
+//         or tied to actor via owner_id / assigned_worker_id / contractor_id (by userType)
+// ─────────────────────────────────────────────
+export async function getTicketSummary(actorId = null, viewAll = false, userType = null, refId = null) {
+  const conn = await getConnection();
+  try {
+    const conditions = [];
+    const binds = {};
+
+    if (!viewAll && actorId) {
+      const orConditions = [`t.created_by = :created_by`];
+      binds.created_by = actorId;
+      if (userType === "OWNER" && refId != null) {
+        orConditions.push(`t.owner_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      } else if (userType === "WORKER" && refId != null) {
+        orConditions.push(`t.assigned_worker_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      } else if (userType === "CONTRACTOR" && refId != null) {
+        orConditions.push(`t.contractor_id = :ref_id`);
+        binds.ref_id = Number(refId);
+      }
+      conditions.push(`(${orConditions.join(" OR ")})`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const result = await conn.execute(
+      `SELECT
+         NVL(SUM(CASE WHEN st.status_name = 'OPEN' THEN 1 ELSE 0 END), 0) AS OPEN_COUNT,
+         NVL(SUM(CASE WHEN st.status_name IN ('IN_REVIEW', 'ACKNOWLEDGED') THEN 1 ELSE 0 END), 0) AS ACTIVE_COUNT,
+         NVL(SUM(CASE WHEN t.due_date < SYSTIMESTAMP AND st.is_closed = 'N' THEN 1 ELSE 0 END), 0) AS OVERDUE_COUNT,
+         NVL(SUM(CASE WHEN pr.priority_name IN ('URGENT', 'CRITICAL') AND st.is_closed = 'N' THEN 1 ELSE 0 END), 0) AS URGENT_COUNT
+       FROM tickets t
+       JOIN ticket_priorities pr ON pr.priority_id = t.priority_id
+       JOIN ticket_statuses   st ON st.status_id    = t.status_id
+       ${where}`,
+      binds,
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    const row = result.rows[0];
+
+    return {
+      open: Number(row?.OPEN_COUNT ?? 0),
+      active: Number(row?.ACTIVE_COUNT ?? 0),
+      overdue: Number(row?.OVERDUE_COUNT ?? 0),
+      urgent: Number(row?.URGENT_COUNT ?? 0),
+    };
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
 // ASSIGN WORKER (assigned_worker_id, writes ticket_history)
 // ─────────────────────────────────────────────
 export async function assignWorker(ticketId, workerId, actorId) {

@@ -54,6 +54,11 @@ export async function ticketHandler(req, res) {
       return res.json({ success: true, ...result });
     }
 
+    case "getTicketSummary": {
+      const data = await svc.getTicketSummary(actorId, viewAll, req.user?.userType ?? null, req.user?.refId ?? null);
+      return res.json({ success: true, data });
+    }
+
     case "getTicket": {
       const ticketId = Number(req.params.id);
       const data = await svc.getTicket(ticketId, actorId, viewAll, req.user?.userType ?? null, req.user?.refId ?? null);
