@@ -19,6 +19,10 @@ router.get("/canned-responses",
   asyncHandler((req, res) => { req.params.action = "listCannedResponses"; return ticketHandler(req, res); })
 );
 
+router.get("/summary", protectRouteV2,
+  asyncHandler((req, res) => { req.params.action = "getTicketSummary"; return ticketHandler(req, res); })
+);
+
 router.get("/:id", protectRouteV2,
   asyncHandler((req, res) => { req.params.action = "getTicket"; return ticketHandler(req, res); })
 );
