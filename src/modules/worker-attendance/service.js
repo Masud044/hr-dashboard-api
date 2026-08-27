@@ -154,9 +154,9 @@ export async function insertAttendance(data) {
 
     const result = await connection.execute(
       `INSERT INTO PM.PM_WORKER_ATTENDANCE
-       (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE,CALC_BASIS, HOURS_WORKED, REMARKS, CREATED_BY)
+       (WORKER_ID, PROJECT_ID, ATTENDANCE_DATE,CALC_BASIS, HOURS_WORKED, REMARKS,APPROVAL_STATUS, CREATED_BY)
        VALUES
-       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE,:CALC_BASIS, :HOURS_WORKED, :REMARKS, :CREATED_BY)
+       (:WORKER_ID, :PROJECT_ID, :ATTENDANCE_DATE,:CALC_BASIS, :HOURS_WORKED, :REMARKS,'PENDING', :CREATED_BY)
        RETURNING ATTENDANCE_ID INTO :NEW_ID`,
       {
         WORKER_ID:       Number(data.WORKER_ID),
@@ -214,7 +214,12 @@ export async function searchAttendance(filters) {
       whereClauses.push("ATTENDANCE_DATE <= TRUNC(:to_date)");
       binds.to_date = new Date(filters.TO_DATE);
     }
-    // ...rest unchanged
+
+    if (filters.APPROVAL_STATUS) {
+  whereClauses.push("APPROVAL_STATUS = :approval_status");
+  binds.approval_status = filters.APPROVAL_STATUS;
+}
+    
 
     const whereStr = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
@@ -245,6 +250,7 @@ export async function searchAttendance(filters) {
         TO_CHAR(ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
         ENTRY_MODE, START_TIME, END_TIME, CALC_BASIS,
         HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY,
+        APPROVAL_STATUS, APPROVED_BY, TO_CHAR(APPROVED_DATE,'YYYY-MM-DD HH24:MI:SS') AS APPROVED_DATE,
         TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
       FROM PM.PM_WORKER_ATTENDANCE
       ${whereStr}
@@ -403,7 +409,7 @@ export async function getPayrollReport(workerId, fromDate, toDate) {
         ON a.WORKER_ID = r.WORKER_ID 
         AND a.ATTENDANCE_DATE BETWEEN r.EFFECTIVE_FROM AND NVL(r.EFFECTIVE_TO, a.ATTENDANCE_DATE)
       WHERE a.WORKER_ID = :wid
-        AND TRUNC(a.ATTENDANCE_DATE) BETWEEN TRUNC(:from_date) AND TRUNC(:to_date)
+        AND TRUNC(a.ATTENDANCE_DATE) BETWEEN TRUNC(:from_date) AND TRUNC(:to_date) AND a.APPROVAL_STATUS = 'APPROVED'
       ORDER BY a.ATTENDANCE_DATE ASC, a.ATTENDANCE_ID ASC
     `;
 
@@ -437,6 +443,7 @@ export async function getAttendanceById(attendance_id) {
         TO_CHAR(ATTENDANCE_DATE, 'YYYY-MM-DD') AS ATTENDANCE_DATE,
         ENTRY_MODE, START_TIME, END_TIME, CALC_BASIS,
         HOURS_WORKED, DAYS_WORKED, REMARKS, CREATED_BY,
+        APPROVAL_STATUS, APPROVED_BY, TO_CHAR(APPROVED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS APPROVED_DATE,
         TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE,
 UPDATED_BY,
 TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
@@ -474,13 +481,68 @@ export async function getWorkerCostsByProject(project_id) {
       LEFT JOIN PM.PM_WORKER_RATE_HISTORY r
         ON a.WORKER_ID = r.WORKER_ID
         AND a.ATTENDANCE_DATE BETWEEN r.EFFECTIVE_FROM AND NVL(r.EFFECTIVE_TO, a.ATTENDANCE_DATE)
-      WHERE a.PROJECT_ID = :pid
+      WHERE a.PROJECT_ID = :pid AND a.APPROVAL_STATUS = 'APPROVED'
       ORDER BY a.ATTENDANCE_DATE DESC, w.WORKER_NAME ASC`;
 
     const result = await connection.execute(
       sql, { pid: Number(project_id) }, { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     return result.rows || [];
+  } finally {
+    await connection.close();
+  }
+}
+
+
+
+
+
+
+
+export async function approveAttendance(attendanceIds, approvedBy) {
+  if (!Array.isArray(attendanceIds) || attendanceIds.length === 0) {
+    throw new Error("No attendance rows selected to approve.");
+  }
+  const placeholders = attendanceIds.map((_, i) => `:id${i}`).join(",");
+  const binds = { approvedBy: approvedBy ?? null };
+  attendanceIds.forEach((id, i) => { binds[`id${i}`] = Number(id); });
+
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `UPDATE PM.PM_WORKER_ATTENDANCE
+       SET APPROVAL_STATUS = 'APPROVED', APPROVED_BY = :approvedBy, APPROVED_DATE = SYSDATE
+       WHERE ATTENDANCE_ID IN (${placeholders}) AND APPROVAL_STATUS != 'APPROVED'`,
+      binds,
+      { autoCommit: false }
+    );
+    await connection.commit();
+    return result.rowsAffected;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    await connection.close();
+  }
+}
+
+
+
+export async function disapproveAttendance(attendanceId) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `UPDATE PM.PM_WORKER_ATTENDANCE
+       SET APPROVAL_STATUS = 'PENDING', APPROVED_BY = NULL, APPROVED_DATE = NULL
+       WHERE ATTENDANCE_ID = :id`,
+      { id: Number(attendanceId) },
+      { autoCommit: false }
+    );
+    await connection.commit();
+    return result.rowsAffected;
+  } catch (err) {
+    await connection.rollback();
+    throw err;
   } finally {
     await connection.close();
   }

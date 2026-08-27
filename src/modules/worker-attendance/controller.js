@@ -6,6 +6,7 @@ import {
   deleteAttendance,
   getPayrollReport,
   getAttendanceById,
+  approveAttendance, disapproveAttendance
 } from "./service.js";
 
 // ─────────────────────────────────────────────
@@ -152,4 +153,32 @@ export async function handleGetAttendanceById(req, res) {
   }
 
   return res.json({ success: true, data });
+}
+
+
+
+
+
+
+
+
+export async function handleApproveAttendance(req, res) {
+  const { attendanceIds } = req.body || {};
+  if (!Array.isArray(attendanceIds) || attendanceIds.length === 0) {
+    return res.status(400).json({ success: false, message: "attendanceIds array is required." });
+  }
+  const rows = await approveAttendance(attendanceIds, req.user?.username);
+  return res.json({ success: true, message: `${rows} attendance record(s) approved.` });
+}
+
+export async function handleDisapproveAttendance(req, res) {
+  const attendance_id = Number(req.params.id || 0);
+  if (!attendance_id) {
+    return res.status(400).json({ success: false, message: "A valid attendance ID is required." });
+  }
+  const rows = await disapproveAttendance(attendance_id);
+  if (!rows) {
+    return res.status(404).json({ success: false, message: `Attendance ${attendance_id} not found.` });
+  }
+  return res.json({ success: true, message: `Attendance ${attendance_id} reverted to pending.` });
 }
