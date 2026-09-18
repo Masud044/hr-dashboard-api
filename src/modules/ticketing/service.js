@@ -216,7 +216,7 @@ export async function listTickets(filters = {}, actorId = null, viewAll = false,
         orConditions.push(`t.owner_id = :ref_id`);
         binds.ref_id = Number(refId);
       } else if (userType === "WORKER" && refId != null) {
-        orConditions.push(`t.assigned_worker_id = :ref_id`);
+        orConditions.push(`(t.assigned_worker_id = :ref_id OR EXISTS (SELECT 1 FROM ticket_worker_assignments twa WHERE twa.ticket_id = t.ticket_id AND twa.worker_id = :ref_id))`);
         binds.ref_id = Number(refId);
       } else if (userType === "CONTRACTOR" && refId != null) {
         orConditions.push(`t.contractor_id = :ref_id`);
@@ -305,6 +305,14 @@ export async function getTicket(ticketId, actorId = null, viewAll = false, userT
         allowed = Number(ticket.OWNER_ID) === Number(refId);
       } else if (!allowed && userType === "WORKER" && refId != null) {
         allowed = Number(ticket.ASSIGNED_WORKER_ID) === Number(refId);
+        if (!allowed) {
+          const assignRow = await conn.execute(
+            `SELECT 1 FROM ticket_worker_assignments WHERE ticket_id = :id AND worker_id = :worker_id`,
+            { id: ticketId, worker_id: Number(refId) },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+          );
+          allowed = assignRow.rows.length > 0;
+        }
       } else if (!allowed && userType === "CONTRACTOR" && refId != null) {
         allowed = Number(ticket.CONTRACTOR_ID) === Number(refId);
       }
@@ -327,11 +335,14 @@ export async function getTicket(ticketId, actorId = null, viewAll = false, userT
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
 
+    const workers = await getTicketWorkers(ticketId);
+
     return {
       ticket,
       comments: comments.rows,
       history: history.rows,
       attachments: attachments.rows,
+      workers,
     };
   } finally {
     await conn.close();
@@ -356,7 +367,7 @@ export async function getTicketSummary(actorId = null, viewAll = false, userType
         orConditions.push(`t.owner_id = :ref_id`);
         binds.ref_id = Number(refId);
       } else if (userType === "WORKER" && refId != null) {
-        orConditions.push(`t.assigned_worker_id = :ref_id`);
+        orConditions.push(`(t.assigned_worker_id = :ref_id OR EXISTS (SELECT 1 FROM ticket_worker_assignments twa WHERE twa.ticket_id = t.ticket_id AND twa.worker_id = :ref_id))`);
         binds.ref_id = Number(refId);
       } else if (userType === "CONTRACTOR" && refId != null) {
         orConditions.push(`t.contractor_id = :ref_id`);
@@ -477,6 +488,117 @@ export async function assignWorker(ticketId, workerId, actorId) {
   } catch (err) {
     await conn.rollback();
     throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// ADD WORKER TO TICKET (multi-worker assignment, writes ticket_history)
+// ─────────────────────────────────────────────
+export async function addWorkerToTicket(ticketId, workerId, actorId) {
+  const conn = await getConnection();
+  try {
+    const ticketRow = await conn.execute(
+      `SELECT ticket_id FROM tickets WHERE ticket_id = :id`,
+      { id: ticketId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!ticketRow.rows.length) throw new AppError("Ticket not found.", 404);
+
+    try {
+      await conn.execute(
+        `INSERT INTO ticket_worker_assignments (ticket_id, worker_id, assigned_by)
+         VALUES (:ticket_id, :worker_id, :assigned_by)`,
+        {
+          ticket_id: ticketId,
+          worker_id: workerId,
+          assigned_by: actorId,
+        },
+        { autoCommit: false }
+      );
+    } catch (err) {
+      if (err?.errorNum === 1 || String(err?.message ?? "").includes("ORA-00001")) {
+        throw new AppError("Worker already assigned.", 400);
+      }
+      throw err;
+    }
+
+    await conn.execute(
+      `INSERT INTO ticket_history
+        (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+       VALUES
+        (:ticket_id, 'ADD_WORKER', :old_value, :new_value, 'USER', :changed_by_id)`,
+      {
+        ticket_id: ticketId,
+        old_value: null,
+        new_value: workerId != null ? String(workerId) : null,
+        changed_by_id: actorId ?? null,
+      },
+      { autoCommit: false }
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// REMOVE WORKER FROM TICKET (multi-worker assignment, writes ticket_history)
+// ─────────────────────────────────────────────
+export async function removeWorkerFromTicket(ticketId, workerId, actorId) {
+  const conn = await getConnection();
+  try {
+    const result = await conn.execute(
+      `DELETE FROM ticket_worker_assignments WHERE ticket_id = :ticketId AND worker_id = :workerId`,
+      { ticketId, workerId },
+      { autoCommit: false }
+    );
+    if (!result.rowsAffected) {
+      throw new AppError("Assignment not found.", 404);
+    }
+
+    await conn.execute(
+      `INSERT INTO ticket_history
+        (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+       VALUES
+        (:ticket_id, 'REMOVE_WORKER', :old_value, :new_value, 'USER', :changed_by_id)`,
+      {
+        ticket_id: ticketId,
+        old_value: workerId != null ? String(workerId) : null,
+        new_value: null,
+        changed_by_id: actorId ?? null,
+      },
+      { autoCommit: false }
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// GET TICKET WORKERS (multi-worker assignments)
+// ─────────────────────────────────────────────
+export async function getTicketWorkers(ticketId) {
+  const conn = await getConnection();
+  try {
+    const result = await conn.execute(
+      `SELECT assignment_id, worker_id, assigned_by, assigned_at FROM ticket_worker_assignments WHERE ticket_id = :id ORDER BY assigned_at ASC`,
+      { id: ticketId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return result.rows;
   } finally {
     await conn.close();
   }
@@ -1056,6 +1178,59 @@ export async function getAttachment(attachmentId) {
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     return result.rows[0] ?? null;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
+// DELETE ATTACHMENT (uploader or TICKET_EDIT, hard delete + history)
+// ─────────────────────────────────────────────
+export async function deleteAttachment(attachmentId, actorId, canEdit) {
+  const conn = await getConnection();
+  try {
+    const curRow = await conn.execute(
+      `SELECT ticket_id, file_name, uploaded_by FROM ticket_attachments WHERE attachment_id = :id`,
+      { id: attachmentId },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    if (!curRow.rows.length) throw new AppError("Attachment not found.", 404);
+    const row = curRow.rows[0];
+
+    const allowed = Number(row.UPLOADED_BY) === Number(actorId) || canEdit;
+    if (!allowed) {
+      throw new AppError("You do not have permission to delete this attachment.", 403);
+    }
+
+    const result = await conn.execute(
+      `DELETE FROM ticket_attachments WHERE attachment_id = :id`,
+      { id: attachmentId },
+      { autoCommit: false }
+    );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Attachment not found.", 404);
+    }
+
+    await conn.execute(
+      `INSERT INTO ticket_history
+        (ticket_id, field_changed, old_value, new_value, changed_by, changed_by_id)
+       VALUES
+        (:ticket_id, 'ATTACHMENT_DELETED', :old_value, :new_value, 'USER', :changed_by_id)`,
+      {
+        ticket_id: row.TICKET_ID,
+        old_value: row.FILE_NAME ?? null,
+        new_value: null,
+        changed_by_id: actorId ?? null,
+      },
+      { autoCommit: false }
+    );
+
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
   } finally {
     await conn.close();
   }

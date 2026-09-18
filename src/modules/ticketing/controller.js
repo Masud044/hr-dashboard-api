@@ -75,6 +75,21 @@ export async function ticketHandler(req, res) {
       return res.json({ success: true, message: "Worker assigned." });
     }
 
+    case "addWorker": {
+      const ticketId = Number(req.params.id);
+      if (!req.body?.WORKER_ID) {
+        return res.status(400).json({ success: false, message: "WORKER_ID is required." });
+      }
+      await svc.addWorkerToTicket(ticketId, Number(req.body.WORKER_ID), actorId);
+      return res.status(201).json({ success: true, message: "Worker added." });
+    }
+
+    case "removeWorker": {
+      const ticketId = Number(req.params.id);
+      await svc.removeWorkerFromTicket(ticketId, Number(req.params.workerId), actorId);
+      return res.json({ success: true, message: "Worker removed." });
+    }
+
     case "updateStatus": {
       const ticketId = Number(req.params.id);
       if (!req.body?.STATUS_NAME) {
@@ -156,6 +171,13 @@ export async function ticketHandler(req, res) {
       res.setHeader("Content-Type", file.FILE_TYPE || "application/octet-stream");
       res.setHeader("Content-Disposition", `inline; filename="${file.FILE_NAME}"`);
       return res.send(file.FILE_DATA);
+    }
+
+    case "deleteAttachment": {
+      const attachmentId = Number(req.params.attachmentId);
+      const canEdit = hasPermission(req, "TICKET_EDIT");
+      await svc.deleteAttachment(attachmentId, actorId, canEdit);
+      return res.json({ success: true, message: "Attachment deleted." });
     }
 
     // ── CANNED RESPONSES ─────────────────────
