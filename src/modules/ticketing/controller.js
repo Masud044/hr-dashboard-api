@@ -118,6 +118,15 @@ export async function ticketHandler(req, res) {
       return res.json({ success: true, message: "Ticket updated." });
     }
 
+    case "deleteTicket": {
+      const ticketId = Number(req.params.id);
+      if (!hasPermission(req, "TICKET_DELETE")) {
+        return res.status(403).json({ success: false, message: "You do not have permission to delete tickets." });
+      }
+      await svc.deleteTicket(ticketId);
+      return res.json({ success: true, message: "Ticket deleted." });
+    }
+
     // ── COMMENTS ─────────────────────────────
     case "addComment": {
       const ticketId = Number(req.params.id);

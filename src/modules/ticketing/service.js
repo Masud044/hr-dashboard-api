@@ -1184,6 +1184,31 @@ export async function getAttachment(attachmentId) {
 }
 
 // ─────────────────────────────────────────────
+// DELETE TICKET (hard delete, ticket row only)
+// ─────────────────────────────────────────────
+export async function deleteTicket(ticketId) {
+  const conn = await getConnection();
+  try {
+    const result = await conn.execute(
+      `DELETE FROM tickets WHERE ticket_id = :id`,
+      { id: ticketId },
+      { autoCommit: false }
+    );
+    if (!result.rowsAffected) {
+      await conn.rollback();
+      throw new AppError("Ticket not found.", 404);
+    }
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    await conn.close();
+  }
+}
+
+// ─────────────────────────────────────────────
 // DELETE ATTACHMENT (uploader or TICKET_EDIT, hard delete + history)
 // ─────────────────────────────────────────────
 export async function deleteAttachment(attachmentId, actorId, canEdit) {
