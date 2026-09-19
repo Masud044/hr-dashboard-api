@@ -61,6 +61,10 @@ router.put("/:id",
   asyncHandler((req, res) => { req.params.action = "updateTicket"; return ticketHandler(req, res); })
 );
 
+router.delete("/:id",
+  asyncHandler((req, res) => { req.params.action = "deleteTicket"; return ticketHandler(req, res); })
+);
+
 router.post("/:id/comments",
   asyncHandler((req, res) => { req.params.action = "addComment"; return ticketHandler(req, res); })
 );
