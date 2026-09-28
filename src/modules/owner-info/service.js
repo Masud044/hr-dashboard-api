@@ -20,11 +20,15 @@ export async function getAllOwnerInfo() {
       oi.PROJECT_ID,
       p.P_NAME   AS PROJECT_NAME,
       oi.CREATED_BY,
+      cu.USERNAME AS CREATED_BY_NAME,
       oi.UPDATED_BY,
+      uu.USERNAME AS UPDATED_BY_NAME,
       oi.ENTRY_DATE,
       oi.UPDATED_DATE
     FROM PM_OWNER_INFO oi
     LEFT JOIN PM_PROJECT p ON p.P_ID = oi.PROJECT_ID
+    LEFT JOIN PM.USERS cu ON cu.ID = oi.CREATED_BY
+    LEFT JOIN PM.USERS uu ON uu.ID = oi.UPDATED_BY
     ORDER BY oi.ID
   `;
   const result = await poolExecute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT });
@@ -48,11 +52,15 @@ export async function getOwnerInfoById(id) {
       oi.PROJECT_ID,
       p.P_NAME   AS PROJECT_NAME,
       oi.CREATED_BY,
+      cu.USERNAME AS CREATED_BY_NAME,
       oi.UPDATED_BY,
+      uu.USERNAME AS UPDATED_BY_NAME,
       oi.ENTRY_DATE,
       oi.UPDATED_DATE
     FROM PM_OWNER_INFO oi
     LEFT JOIN PM_PROJECT p ON p.P_ID = oi.PROJECT_ID
+    LEFT JOIN PM.USERS cu ON cu.ID = oi.CREATED_BY
+    LEFT JOIN PM.USERS uu ON uu.ID = oi.UPDATED_BY
     WHERE oi.ID = :id
   `;
   const result = await poolExecute(
@@ -80,11 +88,15 @@ export async function getOwnerInfoByProjectId(projectId) {
       oi.PROJECT_ID,
       p.P_NAME   AS PROJECT_NAME,
       oi.CREATED_BY,
+      cu.USERNAME AS CREATED_BY_NAME,
       oi.UPDATED_BY,
+      uu.USERNAME AS UPDATED_BY_NAME,
       oi.ENTRY_DATE,
       oi.UPDATED_DATE
     FROM PM_OWNER_INFO oi
     LEFT JOIN PM_PROJECT p ON p.P_ID = oi.PROJECT_ID
+    LEFT JOIN PM.USERS cu ON cu.ID = oi.CREATED_BY
+    LEFT JOIN PM.USERS uu ON uu.ID = oi.UPDATED_BY
     WHERE oi.PROJECT_ID = :projectId
     ORDER BY oi.ID
   `;
