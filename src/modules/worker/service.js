@@ -10,18 +10,23 @@ export async function insertWorker(data) {
   try {
     const result = await connection.execute(
       `INSERT INTO PM.PM_WORKER
-       (WORKER_NAME, PHONE, ADDRESS, STATUS, REMARKS, CREATED_BY, UPDATED_BY)
+       (WORKER_NAME, PHONE, EMAIL, ADDRESS, STATUS, REMARKS, CREATED_BY, UPDATED_BY)
        VALUES
-       (:WORKER_NAME, :PHONE, :ADDRESS, :STATUS, :REMARKS, :CREATED_BY, :UPDATED_BY)
+       (:WORKER_NAME, :PHONE, :EMAIL, :ADDRESS, :STATUS, :REMARKS, :CREATED_BY, :UPDATED_BY)
        RETURNING WORKER_ID INTO :NEW_WORKER_ID`,
       {
         WORKER_NAME:   data.WORKER_NAME,
         PHONE:         data.PHONE ?? null,
+        EMAIL:         data.EMAIL ?? null,
         ADDRESS:       data.ADDRESS ?? null,
         STATUS:        Number(data.STATUS ?? 1),
         REMARKS:       data.REMARKS ?? null,
-        CREATED_BY:    data.CREATED_BY ?? null,
-        UPDATED_BY:    data.UPDATED_BY ?? data.CREATED_BY ?? null,
+        CREATED_BY:    data.CREATED_BY != null ? String(data.CREATED_BY) : null,
+        UPDATED_BY:    data.UPDATED_BY != null
+                         ? String(data.UPDATED_BY)
+                         : data.CREATED_BY != null
+                           ? String(data.CREATED_BY)
+                           : null,
         NEW_WORKER_ID: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
       },
       { autoCommit: false }
@@ -46,21 +51,25 @@ export async function searchWorker(worker_id) {
   try {
     let sql = `
       SELECT
-        WORKER_ID, WORKER_NAME, PHONE, ADDRESS, STATUS, REMARKS,
-        CREATED_BY,
-        TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE,
-        UPDATED_BY,
-        TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
-      FROM PM.PM_WORKER`;
+        w.WORKER_ID, w.WORKER_NAME, w.PHONE, w.EMAIL, w.ADDRESS, w.STATUS, w.REMARKS,
+        w.CREATED_BY,
+        cu.USERNAME AS CREATED_BY_NAME,
+        TO_CHAR(w.CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE,
+        w.UPDATED_BY,
+        uu.USERNAME AS UPDATED_BY_NAME,
+        TO_CHAR(w.UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
+      FROM PM.PM_WORKER w
+      LEFT JOIN PM.USERS cu ON TO_CHAR(cu.ID) = w.CREATED_BY
+      LEFT JOIN PM.USERS uu ON TO_CHAR(uu.ID) = w.UPDATED_BY`;
 
     const binds = {};
     if (worker_id > 0) {
-      sql += " WHERE WORKER_ID = :worker_id_bv";
+      sql += " WHERE w.WORKER_ID = :worker_id_bv";
       binds.worker_id_bv = worker_id;
     }
 
     // sql += " ORDER BY WORKER_ID";
-    sql += " ORDER BY WORKER_NAME ASC";
+    sql += " ORDER BY w.WORKER_NAME ASC";
 
     const result = await connection.execute(sql, binds, {
       outFormat: oracledb.OUT_FORMAT_OBJECT,
@@ -82,10 +91,10 @@ export async function updateWorker(data) {
     const set = [];
     const binds = {
       worker_id_bv:  worker_id,
-      updated_by_bv: data.UPDATED_BY ?? null,
+      updated_by_bv: data.UPDATED_BY != null ? String(data.UPDATED_BY) : null,
     };
 
-    const stringFields = ["WORKER_NAME", "PHONE", "ADDRESS", "REMARKS"];
+    const stringFields = ["WORKER_NAME", "PHONE", "EMAIL", "ADDRESS", "REMARKS"];
     const numberFields = ["STATUS"];
 
     for (const field of stringFields) {
