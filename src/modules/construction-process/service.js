@@ -405,3 +405,64 @@ export async function getContractorsByType(typeId) {
     await connection.close();
   }
 }
+
+// ── Files attached to a process line ──────────────────────────────────────────
+export async function addProcessFile({ cpId, file, userId }) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `INSERT INTO PM.PM_CP_FILE
+         (CP_ID, FILE_NAME, FILE_TYPE, FILE_SIZE, FILE_DATA, UPLOADED_BY)
+       VALUES
+         (:cpId, :fileName, :fileType, :fileSize, :fileData, :userId)
+       RETURNING FILE_ID INTO :newId`,
+      {
+        cpId,
+        fileName: file.originalname,
+        fileType: file.mimetype,
+        fileSize: file.size,
+        fileData: { val: file.buffer, type: oracledb.BLOB },
+        userId,
+        newId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
+      },
+      { autoCommit: true }
+    );
+    return { fileId: result.outBinds.newId[0] };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function getProcessFile(fileId) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `SELECT FILE_DATA, FILE_NAME, FILE_TYPE
+         FROM PM.PM_CP_FILE WHERE FILE_ID = :fileId`,
+      { fileId },
+      {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+        fetchInfo: { FILE_DATA: { type: oracledb.BUFFER } },
+      }
+    );
+    const row = result.rows?.[0];
+    if (!row || !row.FILE_DATA) return null;
+    return { buffer: row.FILE_DATA, fileName: row.FILE_NAME, fileType: row.FILE_TYPE };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function deleteProcessFile(fileId) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `DELETE FROM PM.PM_CP_FILE WHERE FILE_ID = :fileId`,
+      { fileId },
+      { autoCommit: true }
+    );
+    return result.rowsAffected > 0;
+  } finally {
+    await connection.close();
+  }
+}

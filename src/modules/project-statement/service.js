@@ -1976,6 +1976,26 @@ export async function getProjectReport(pId) {
     { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
 
+    const filesResult = await poolExecute(
+    `SELECT f.FILE_ID, f.CP_ID, f.FILE_NAME, f.FILE_TYPE, f.FILE_SIZE
+       FROM PM.PM_CP_FILE f
+      WHERE f.CP_ID IN (SELECT ID FROM PM.PM_CONSTRUCTION_PROCESS WHERE PROCESS_ID = :pid)
+      ORDER BY f.FILE_ID`,
+    { pid: pidNum },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+
+  const filesByLine = new Map();
+  for (const f of filesResult.rows || []) {
+    if (!filesByLine.has(f.CP_ID)) filesByLine.set(f.CP_ID, []);
+    filesByLine.get(f.CP_ID).push({
+      fileId: f.FILE_ID,
+      fileName: f.FILE_NAME,
+      fileType: f.FILE_TYPE,
+      fileSize: f.FILE_SIZE,
+    });
+  }
+
   const idsByLine = new Map();
   for (const a of assignResult.rows || []) {
     if (!idsByLine.has(a.CP_ID)) idsByLine.set(a.CP_ID, []);
@@ -1996,6 +2016,7 @@ export async function getProjectReport(pId) {
       status: l.STATUS || "PENDING",
       sortId: l.SORT_ID,
       contractorIds,
+      files: filesByLine.get(l.ID) || [],
     };
   });
 
