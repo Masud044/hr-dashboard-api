@@ -1892,6 +1892,39 @@ export async function getMainInvoiceFile(txnId) {
 //   return { transactions, workerLogs, workerTotals, marginPercent };
 // }
 
+// export async function getProjectReport(pId) {
+//   const result = await poolExecute(
+//     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
+//             m.CONTRACTOR_ID, NVL(ci.CONTRATOR_NAME, m.CONTRACTOR_NAME) AS CONTRACTOR_NAME, m.INVOICE_NO,
+//             m.INVOICE_FILE_NAME, m.SOURCE_TYPE, m.REMARKS, m.PAYMENT_BY,m.EXCLUDE_MARGIN, m.APPROVED_DATE,
+//             p.P_ID, p.P_NAME, p.P_ADDRESS, p.SUBWRB, p.POSTCODE, p.STATE, p.MARGIN_PERCENT
+//      FROM PM.PM_STATEMENT_MAIN m
+//      JOIN PM.PM_PROJECT p ON p.P_ID = m.P_ID
+//      LEFT JOIN PM.PM_CONTRACTOR_INFO ci ON ci.CONTRATOR_ID = m.CONTRACTOR_ID
+//      WHERE m.P_ID = :pId
+//      ORDER BY ci.SORT_ORDER, m.TXN_DATE DESC`,
+//     { pId },
+//     { outFormat: oracledb.OUT_FORMAT_OBJECT },
+//   );
+//   const transactions = result.rows || [];
+
+//   const workerLogs = await getWorkerCostsByProject(pId);
+
+//   const workerTotals = workerLogs.reduce(
+//     (acc, r) => {
+//       acc.totalHours += Number(r.HOURS_WORKED) || 0;
+//       acc.totalDays += Number(r.DAYS_WORKED) || 0;
+//       acc.totalAmount += Number(r.AMOUNT) || 0;
+//       return acc;
+//     },
+//     { totalHours: 0, totalDays: 0, totalAmount: 0 },
+//   );
+
+//   const marginPercent = transactions.length > 0 ? transactions[0].MARGIN_PERCENT : null;
+
+//   return { transactions, workerLogs, workerTotals, marginPercent };
+// }
+
 export async function getProjectReport(pId) {
   const result = await poolExecute(
     `SELECT m.TXN_ID, m.TXN_DATE, m.AMOUNT, m.DEBIT, m.CREDIT, m.DESCRIPTION,
@@ -1922,7 +1955,51 @@ export async function getProjectReport(pId) {
 
   const marginPercent = transactions.length > 0 ? transactions[0].MARGIN_PERCENT : null;
 
-  return { transactions, workerLogs, workerTotals, marginPercent };
+  // ── NEW: construction process lines (budget + manual status) ──
+  const pidNum = Number(pId);
+  const linesResult = await poolExecute(
+    `SELECT cp.ID, cp.SUB_CONTRACT_ID, ct.NAME AS TYPE_NAME,
+            NVL(cp.COST, 0) AS COST, cp.STATUS, cp.SORT_ID, cp.CONTRACTOR_ID
+     FROM PM.PM_CONSTRUCTION_PROCESS cp
+     LEFT JOIN PM.PM_CONTRACTOR_TYPE ct ON ct.ID = cp.SUB_CONTRACT_ID
+     WHERE cp.PROCESS_ID = :pid
+     ORDER BY cp.SORT_ID`,
+    { pid: pidNum },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+  const assignResult = await poolExecute(
+    `SELECT a.CP_ID, a.CONTRACTOR_ID
+     FROM PM.PM_CP_CONTRACTOR a
+     WHERE a.CP_ID IN (SELECT ID FROM PM.PM_CONSTRUCTION_PROCESS WHERE PROCESS_ID = :pid)
+     ORDER BY a.ASSIGNMENT_ID`,
+    { pid: pidNum },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+
+  const idsByLine = new Map();
+  for (const a of assignResult.rows || []) {
+    if (!idsByLine.has(a.CP_ID)) idsByLine.set(a.CP_ID, []);
+    idsByLine.get(a.CP_ID).push(Number(a.CONTRACTOR_ID));
+  }
+
+  const budgetLines = (linesResult.rows || []).map((l) => {
+    let contractorIds = idsByLine.get(l.ID) || [];
+    // fallback: old single column when no junction rows exist
+    if (contractorIds.length === 0 && l.CONTRACTOR_ID != null) {
+      contractorIds = [Number(l.CONTRACTOR_ID)];
+    }
+    return {
+      lineId: l.ID,
+      typeId: l.SUB_CONTRACT_ID,
+      typeName: l.TYPE_NAME,
+      cost: Number(l.COST) || 0,
+      status: l.STATUS || "PENDING",
+      sortId: l.SORT_ID,
+      contractorIds,
+    };
+  });
+
+  return { transactions, workerLogs, workerTotals, marginPercent, budgetLines };
 }
 
 export async function disapproveTransaction(txnId) {

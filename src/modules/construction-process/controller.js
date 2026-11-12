@@ -1,3 +1,12 @@
+// import {
+//   createConstructionProcess,
+//   readConstructionProcess,
+//   updateConstructionProcess,
+//   deleteConstructionProcess,
+//   getContractorTypes,
+//   getContractorsByType,
+// } from "./service.js";
+
 import {
   createConstructionProcess,
   readConstructionProcess,
@@ -5,6 +14,8 @@ import {
   deleteConstructionProcess,
   getContractorTypes,
   getContractorsByType,
+  updateConstructionProcessStatus,
+  ALLOWED_STATUS,
 } from "./service.js";
 
 export async function handleConstructionProcess(req, res) {
@@ -38,6 +49,28 @@ export async function handleConstructionProcess(req, res) {
       success: success ? 1 : 0,
       message: success ? "Record deleted successfully" : "Delete failed",
     });
+  }
+
+    if (action === "update_status") {
+    const ID     = Number(req.body?.ID);
+    const STATUS = String(req.body?.STATUS ?? "").toUpperCase();
+    const userId = Number(req.body?.UPDATED_BY) || null;
+
+    if (!ID) {
+      return res.status(400).json({ success: 0, message: "ID is required" });
+    }
+    if (!ALLOWED_STATUS.includes(STATUS)) {
+      return res.status(400).json({
+        success: 0,
+        message: `Invalid STATUS. Use: ${ALLOWED_STATUS.join(" | ")}`,
+      });
+    }
+
+    const success = await updateConstructionProcessStatus({ ID, STATUS, userId });
+    if (!success) {
+      return res.status(404).json({ success: 0, message: "Process line not found" });
+    }
+    return res.json({ success: 1, message: "Status updated successfully" });
   }
 
   // ── Contractor Type dropdown ──────────────────────────────────────────────
