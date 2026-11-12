@@ -189,6 +189,7 @@ export async function readConstructionProcess(PROCESS_ID) {
         cp.SORT_ID,
         cp.COST,
         cp.CONTRACTOR_ID,
+        cp.STATUS,
         ci.CONTRATOR_NAME,
         ci.PHONE,
         ci.EMAIL,
@@ -342,6 +343,27 @@ export async function deleteConstructionProcess(ID) {
   }
 }
 
+
+export const ALLOWED_STATUS = ["PENDING", "IN_PROGRESS", "COMPLETED"];
+
+export async function updateConstructionProcessStatus({ ID, STATUS, userId }) {
+  const connection = await getConnection();
+  try {
+    const result = await connection.execute(
+      `UPDATE PM_CONSTRUCTION_PROCESS
+          SET STATUS              = :STATUS,
+              STATUS_UPDATED_BY   = :userId,
+              STATUS_UPDATED_DATE = SYSDATE,
+              UPDATE_DATE         = SYSDATE
+        WHERE ID = :ID`,
+      { STATUS, userId, ID: Number(ID) },
+      { autoCommit: true }
+    );
+    return result.rowsAffected > 0;
+  } finally {
+    await connection.close();
+  }
+}
 // ── Contractor Type dropdown ──────────────────────────────────────────────────
 
 export async function getContractorTypes() {
