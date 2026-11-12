@@ -16,6 +16,7 @@ import {
   getContractorsByType,
   updateConstructionProcessStatus,
   ALLOWED_STATUS,
+  addProcessFile, getProcessFile, deleteProcessFile
 } from "./service.js";
 
 export async function handleConstructionProcess(req, res) {
@@ -93,4 +94,39 @@ export async function handleConstructionProcess(req, res) {
     success: 0,
     message: "Invalid action. Use: create | read | update | delete | contractor_types | contractors_by_type",
   });
+}
+
+
+export async function handleFileUpload(req, res) {
+  const cpId = Number(req.body?.CP_ID);
+  if (!cpId) {
+    return res.status(400).json({ success: 0, message: "CP_ID is required" });
+  }
+  if (!req.file) {
+    return res.status(400).json({ success: 0, message: "File is required" });
+  }
+  const userId = Number(req.body?.UPLOADED_BY) || null;
+  const result = await addProcessFile({ cpId, file: req.file, userId });
+  return res.json({ success: 1, message: "File uploaded", ...result });
+}
+
+export async function handleFileDownload(req, res) {
+  const file = await getProcessFile(Number(req.params.fileId));
+  if (!file) {
+    return res.status(404).json({ success: 0, message: "File not found" });
+  }
+  res.setHeader("Content-Type", file.fileType || "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename*=UTF-8''${encodeURIComponent(file.fileName || "file")}`
+  );
+  return res.send(file.buffer);
+}
+
+export async function handleFileDelete(req, res) {
+  const ok = await deleteProcessFile(Number(req.params.fileId));
+  if (!ok) {
+    return res.status(404).json({ success: 0, message: "File not found" });
+  }
+  return res.json({ success: 1, message: "File deleted" });
 }
