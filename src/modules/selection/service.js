@@ -6,17 +6,16 @@ const DEFAULT_FIELDS_JSON = [
   { key: "description", label: "Description", type: "textarea" },
   { key: "image", label: "Image", type: "image" },
   { key: "remarks", label: "Remarks / Note", type: "textarea" },
-  { key: "checkbox", label: "Checkbox", type: "checkbox" },
 ];
 
 const FORM_COLUMNS = `
   ID, P_ID, TITLE, LEVEL_NO, IS_TEMPLATE, STATUS, COPIED_FROM_ID,
-  TO_CHAR(PUBLISHED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS PUBLISHED_DATE,
+  TO_CHAR(PUBLISHED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS PUBLISHED_DATE,
   PUBLISHED_BY,
-  TO_CHAR(CONFIRMED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CONFIRMED_DATE,
+  TO_CHAR(CONFIRMED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CONFIRMED_DATE,
   CONFIRMED_BY,
-  CREATED_BY, TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE,
-  UPDATED_BY, TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS UPDATED_DATE
+  CREATED_BY, TO_CHAR(CREATED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CREATED_DATE,
+  UPDATED_BY, TO_CHAR(UPDATED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS UPDATED_DATE
 `;
 
 // ─────────────────────────────────────────────
@@ -1028,6 +1027,35 @@ export async function reopenForm(formId, userId) {
       { autoCommit: false },
     );
 
+    const roundResult = await connection.execute(
+      `SELECT NVL(MAX(h.ROUND_NO), 0) + 1 AS NEXT_ROUND
+         FROM PM.PM_SELECTION_NOTE_HISTORY h
+        WHERE h.ITEM_ID IN (
+          SELECT i.ID FROM PM.PM_SELECTION_ITEM i
+          JOIN PM.PM_SELECTION_AREA a ON a.ID = i.AREA_ID
+          WHERE a.FORM_ID = :form_id)`,
+      { form_id: Number(formId) },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const nextRound = roundResult.rows?.[0]?.NEXT_ROUND ?? 1;
+
+    await connection.execute(
+      `INSERT INTO PM.PM_SELECTION_NOTE_HISTORY
+       (ITEM_ID, ROUND_NO, NOTE, SAVED_BY, SAVED_DATE)
+       SELECT i.ID, :round_no, i.CUSTOMER_NOTE, :saved_by, SYSDATE
+         FROM PM.PM_SELECTION_ITEM i
+         JOIN PM.PM_SELECTION_AREA a ON a.ID = i.AREA_ID
+        WHERE a.FORM_ID = :form_id
+          AND i.CUSTOMER_NOTE IS NOT NULL
+          AND TRIM(i.CUSTOMER_NOTE) IS NOT NULL`,
+      {
+        round_no: Number(nextRound),
+        saved_by: Number(userId ?? 0),
+        form_id: Number(formId),
+      },
+      { autoCommit: false },
+    );
+
     await connection.execute(
       `UPDATE PM.PM_SELECTION_ITEM
           SET CUSTOMER_CONFIRMED = 'N',
@@ -1301,12 +1329,24 @@ async function _fetchForm(connection, formId, ownerId = null) {
   const fileResult = await connection.execute(
     `SELECT f.ID, f.ITEM_ID, f.FIELD_KEY, f.FILE_NAME, f.MIME_TYPE,
             f.FILE_SIZE, f.CREATED_BY,
-            TO_CHAR(f.CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
+            TO_CHAR(f.CREATED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CREATED_DATE
        FROM PM.PM_SELECTION_FILE f
        JOIN PM.PM_SELECTION_ITEM i ON i.ID = f.ITEM_ID
        JOIN PM.PM_SELECTION_AREA a ON a.ID = i.AREA_ID
       WHERE a.FORM_ID = :form_id
       ORDER BY f.ID`,
+    { form_id: Number(formId) },
+    { outFormat: oracledb.OUT_FORMAT_OBJECT },
+  );
+
+  const historyResult = await connection.execute(
+    `SELECT h.ID, h.ITEM_ID, h.ROUND_NO, h.NOTE, h.SAVED_BY,
+            TO_CHAR(h.SAVED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS SAVED_DATE
+       FROM PM.PM_SELECTION_NOTE_HISTORY h
+       JOIN PM.PM_SELECTION_ITEM i ON i.ID = h.ITEM_ID
+       JOIN PM.PM_SELECTION_AREA a ON a.ID = i.AREA_ID
+      WHERE a.FORM_ID = :form_id
+      ORDER BY h.ROUND_NO, h.ID`,
     { form_id: Number(formId) },
     { outFormat: oracledb.OUT_FORMAT_OBJECT },
   );
@@ -1319,12 +1359,21 @@ async function _fetchForm(connection, formId, ownerId = null) {
     filesByItem.set(key, list);
   }
 
+  const historyByItem = new Map();
+  for (const history of historyResult.rows || []) {
+    const key = Number(history.ITEM_ID);
+    const list = historyByItem.get(key) || [];
+    list.push(history);
+    historyByItem.set(key, list);
+  }
+
   const itemsByArea = new Map();
   for (const item of itemResult.rows || []) {
     const parsedItem = {
       ...item,
       VALUES_JSON: _parseJson(item.VALUES_JSON),
       FILES: filesByItem.get(Number(item.ID)) || [],
+      NOTE_HISTORY: historyByItem.get(Number(item.ID)) || [],
     };
     const key = Number(item.AREA_ID);
     const list = itemsByArea.get(key) || [];
@@ -1391,7 +1440,7 @@ async function _fetchItem(connection, itemId) {
   const fileResult = await connection.execute(
     `SELECT ID, ITEM_ID, FIELD_KEY, FILE_NAME, MIME_TYPE, FILE_SIZE,
             CREATED_BY,
-            TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
+            TO_CHAR(CREATED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CREATED_DATE
        FROM PM.PM_SELECTION_FILE
       WHERE ITEM_ID = :item_id
       ORDER BY ID`,
@@ -1407,7 +1456,7 @@ async function _fetchFile(connection, fileId) {
   const result = await connection.execute(
     `SELECT ID, ITEM_ID, FIELD_KEY, FILE_NAME, MIME_TYPE, FILE_SIZE,
             CREATED_BY,
-            TO_CHAR(CREATED_DATE, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_DATE
+            TO_CHAR(CREATED_DATE, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS CREATED_DATE
        FROM PM.PM_SELECTION_FILE
       WHERE ID = :id`,
     { id: Number(fileId) },
