@@ -55,6 +55,10 @@ router.get('/main',
   asyncHandler((req, res) => { req.params.action = 'getMain'; return statementHandler(req, res); })
 );
 
+router.get('/all',
+  asyncHandler((req, res) => { req.params.action = 'getAll'; return statementHandler(req, res); })
+);
+
 router.get('/latest-batch',
   asyncHandler((req, res) => { req.params.action = 'getLatestBatch'; return statementHandler(req, res); })
 );
