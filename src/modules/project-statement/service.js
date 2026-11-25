@@ -1833,6 +1833,122 @@ function buildMainWhere(filters = {}) {
 
   return { where, binds };
 }
+
+// ── Combined list: PENDING staging rows + APPROVED main rows in one filtered, paginated feed ──
+export async function getAllStatements(filters = {}, pagination = {}) {
+  // status is a branch selector here, not a WHERE filter — strip it before
+  // handing the remaining filters to the shared builders.
+  const { status, ...baseFilters } = filters;
+  const normalizedStatus = String(status || "").toUpperCase();
+  const includeStaging = normalizedStatus !== "APPROVED";
+  const includeMain = normalizedStatus !== "PENDING";
+
+  const branches = [];
+  const binds = {};
+
+  if (includeStaging) {
+    const { where, binds: stagingBinds } = buildStagingWhere(baseFilters);
+    Object.assign(binds, stagingBinds);
+    branches.push(`SELECT 'STAGING' AS ROW_TYPE,
+              s.STATUS AS STATUS,
+              s.STAGING_ID AS STAGING_ID,
+              CAST(NULL AS NUMBER) AS TXN_ID,
+              s.TXN_DATE AS TXN_DATE,
+              s.AMOUNT AS AMOUNT,
+              CASE WHEN s.AMOUNT >= 0 THEN s.AMOUNT END AS DEBIT,
+              CASE WHEN s.AMOUNT < 0 THEN ABS(s.AMOUNT) END AS CREDIT,
+              s.DESCRIPTION AS DESCRIPTION,
+              s.CATEGORY AS CATEGORY,
+              s.P_ID AS P_ID,
+              s.PROJECT_NAME AS PROJECT_NAME,
+              s.CONTRACTOR_ID AS CONTRACTOR_ID,
+              s.CONTRACTOR_NAME AS CONTRACTOR_NAME,
+              s.INVOICE_NO AS INVOICE_NO,
+              s.SOURCE_TYPE AS SOURCE_TYPE,
+              s.REMARKS AS REMARKS,
+              s.PAYMENT_BY AS PAYMENT_BY,
+              s.EXCLUDE_MARGIN AS EXCLUDE_MARGIN,
+              s.USER_ID AS USER_ID,
+              cu.USERNAME AS CREATED_BY_NAME,
+              s.CREATION_DATE AS CREATION_DATE,
+              CAST(NULL AS NUMBER) AS APPROVED_BY,
+              CAST(NULL AS VARCHAR2(255)) AS APPROVED_BY_NAME,
+              CAST(NULL AS DATE) AS APPROVED_DATE
+       FROM PM.PM_STATEMENT_STAGING s
+       LEFT JOIN PM.USERS cu ON cu.ID = s.USER_ID
+       ${where} AND s.STATUS = 'PENDING'`);
+  }
+
+  if (includeMain) {
+    const { where, binds: mainBinds } = buildMainWhere(baseFilters);
+    Object.assign(binds, mainBinds);
+    branches.push(`SELECT 'MAIN' AS ROW_TYPE,
+              'APPROVED' AS STATUS,
+              m.STAGING_ID AS STAGING_ID,
+              m.TXN_ID AS TXN_ID,
+              m.TXN_DATE AS TXN_DATE,
+              m.AMOUNT AS AMOUNT,
+              m.DEBIT AS DEBIT,
+              m.CREDIT AS CREDIT,
+              m.DESCRIPTION AS DESCRIPTION,
+              m.CATEGORY AS CATEGORY,
+              m.P_ID AS P_ID,
+              m.PROJECT_NAME AS PROJECT_NAME,
+              m.CONTRACTOR_ID AS CONTRACTOR_ID,
+              m.CONTRACTOR_NAME AS CONTRACTOR_NAME,
+              m.INVOICE_NO AS INVOICE_NO,
+              m.SOURCE_TYPE AS SOURCE_TYPE,
+              m.REMARKS AS REMARKS,
+              m.PAYMENT_BY AS PAYMENT_BY,
+              m.EXCLUDE_MARGIN AS EXCLUDE_MARGIN,
+              m.USER_ID AS USER_ID,
+              cu.USERNAME AS CREATED_BY_NAME,
+              CAST(NULL AS DATE) AS CREATION_DATE,
+              m.APPROVED_BY AS APPROVED_BY,
+              au.USERNAME AS APPROVED_BY_NAME,
+              m.APPROVED_DATE AS APPROVED_DATE
+       FROM PM.PM_STATEMENT_MAIN m
+       LEFT JOIN PM.USERS cu ON cu.ID = m.USER_ID
+       LEFT JOIN PM.USERS au ON au.ID = m.APPROVED_BY
+       ${where}`);
+  }
+
+  const { page, pageSize } = pagination;
+  const isPaginated = Number(page) > 0 && Number(pageSize) > 0;
+
+  if (branches.length === 0) {
+    return isPaginated ? { rows: [], totalCount: 0 } : [];
+  }
+
+  const unionSql = `SELECT * FROM ( ${branches.join(" UNION ALL ")} ) u`;
+  const sql = `${unionSql} ORDER BY TXN_DATE DESC, COALESCE(TXN_ID, STAGING_ID) DESC`;
+
+  if (!isPaginated) {
+    const result = await poolExecute(sql, binds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    });
+    return result.rows || [];
+  }
+
+  const offset = (Number(page) - 1) * Number(pageSize);
+  const pagedSql = `${sql} OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY`;
+  const pagedBinds = { ...binds, offset, pageSize: Number(pageSize) };
+
+  const countSql = `SELECT COUNT(*) AS TOTAL FROM ( ${branches.join(" UNION ALL ")} ) u`;
+
+  const [dataResult, countResult] = await Promise.all([
+    poolExecute(pagedSql, pagedBinds, {
+      outFormat: oracledb.OUT_FORMAT_OBJECT,
+    }),
+    poolExecute(countSql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }),
+  ]);
+
+  return {
+    rows: dataResult.rows || [],
+    totalCount: Number(countResult.rows?.[0]?.TOTAL || 0),
+  };
+}
+
 export async function getMainInvoiceFile(txnId) {
   const conn = await getConnection();
   try {

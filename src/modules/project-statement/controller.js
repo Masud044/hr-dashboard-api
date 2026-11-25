@@ -5,6 +5,7 @@ import {
   getStagingFiltered,
   approveAndMoveToMain,
   getMainTransactions,
+  getAllStatements,
   getLatestPendingBatch,
   getAllProjects,
   getAllContractors,
@@ -414,6 +415,38 @@ export async function statementHandler(req, res) {
         pageSize: req.query.pageSize || null,
       };
       const result = await getMainTransactions(filters, pagination);
+
+      if (Array.isArray(result)) {
+        return res.status(200).json({ success: true, data: result });
+      }
+      return res.status(200).json({
+        success: true,
+        data: result.rows,
+        totalCount: result.totalCount,
+      });
+    }
+    case "getAll": {
+      const filters = {
+        status: req.query.status || null,
+        sourceType: req.query.sourceType || null,
+        dateFrom: req.query.dateFrom || null,
+        dateTo: req.query.dateTo || null,
+        pId: req.query.pId || null,
+        contractorId: req.query.contractorId || null,
+        invoiceNo: req.query.invoiceNo || null,
+        amountMin: req.query.amountMin || null,
+        amountMax: req.query.amountMax || null,
+        amount: req.query.amount || null,
+        description: req.query.description || null,
+        remarks: req.query.remarks || null,
+        category: req.query.category || null,
+        matchedAddress: req.query.matchedAddress || null,
+      };
+      const pagination = {
+        page: req.query.page || null,
+        pageSize: req.query.pageSize || null,
+      };
+      const result = await getAllStatements(filters, pagination);
 
       if (Array.isArray(result)) {
         return res.status(200).json({ success: true, data: result });
